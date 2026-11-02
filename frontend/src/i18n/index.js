@@ -14,7 +14,14 @@ for (const path in localeFiles) {
   }
 }
 
-const savedLocale = localStorage.getItem('locale') || 'zh'
+// Saved choice wins; first-time visitors start from their browser language.
+const detectBrowserLocale = () => {
+  const nav = (navigator.language || '').toLowerCase()
+  const primary = nav.split('-')[0]
+  return languages[primary] ? primary : 'zh'
+}
+
+const savedLocale = localStorage.getItem('locale') || detectBrowserLocale()
 
 const i18n = createI18n({
   legacy: false,
