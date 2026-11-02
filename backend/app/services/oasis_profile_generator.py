@@ -19,6 +19,7 @@ from openai import OpenAI
 from ..config import Config
 from ..utils.logger import get_logger
 from ..utils.locale import get_language_instruction, get_locale, set_locale, t
+from ..utils.llm_providers import chain_head_credentials
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
 from ..utils.zep import (
     call_zep_read_with_retry,
@@ -248,6 +249,12 @@ class OasisProfileGenerator:
         zep_api_key: Optional[str] = None,
         graph_id: Optional[str] = None
     ):
+        # OpenReef: an explicit override wins; otherwise the "profile" chain
+        # head from the provider registry (if configured) picks the provider.
+        if api_key is None and base_url is None and model_name is None:
+            head = chain_head_credentials("profile")
+            if head is not None:
+                api_key, base_url, model_name = head
         self.api_key = api_key or Config.LLM_API_KEY
         self.base_url = base_url or Config.LLM_BASE_URL
         self.model_name = model_name or Config.LLM_MODEL_NAME

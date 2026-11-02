@@ -21,6 +21,7 @@ from openai import OpenAI
 from ..config import Config
 from ..utils.logger import get_logger
 from ..utils.locale import get_language_instruction, t
+from ..utils.llm_providers import chain_head_credentials
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
 from .zep_entity_reader import EntityNode, ZepEntityReader
 
@@ -229,6 +230,12 @@ class SimulationConfigGenerator:
         base_url: Optional[str] = None,
         model_name: Optional[str] = None
     ):
+        # OpenReef: an explicit override wins; otherwise the "config" chain
+        # head from the provider registry (if configured) picks the provider.
+        if api_key is None and base_url is None and model_name is None:
+            head = chain_head_credentials("config")
+            if head is not None:
+                api_key, base_url, model_name = head
         self.api_key = api_key or Config.LLM_API_KEY
         self.base_url = base_url or Config.LLM_BASE_URL
         self.model_name = model_name or Config.LLM_MODEL_NAME
