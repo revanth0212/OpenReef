@@ -249,7 +249,8 @@ class SimulationManager:
         defined_entity_types: Optional[List[str]] = None,
         use_llm_for_profiles: bool = True,
         progress_callback: Optional[callable] = None,
-        parallel_profile_count: int = 3
+        parallel_profile_count: int = 3,
+        web_search_enabled: bool = False
     ) -> SimulationState:
         """
         准备模拟环境（全程自动化）
@@ -269,6 +270,7 @@ class SimulationManager:
             use_llm_for_profiles: 是否使用LLM生成详细人设
             progress_callback: 进度回调函数 (stage, progress, message)
             parallel_profile_count: 并行生成人设的数量，默认3
+            web_search_enabled: OpenReef 是否为Agent启用联网搜索（需 TAVILY_API_KEY，默认关闭）
             
         Returns:
             SimulationState
@@ -428,7 +430,8 @@ class SimulationManager:
                 document_text=document_text,
                 entities=filtered.entities,
                 enable_twitter=state.enable_twitter,
-                enable_reddit=state.enable_reddit
+                enable_reddit=state.enable_reddit,
+                web_search_enabled=web_search_enabled
             )
             
             if progress_callback:

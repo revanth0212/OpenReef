@@ -22,6 +22,7 @@ from ..config import Config
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from ..utils.locale import get_language_instruction, get_locale, t
+from ..utils.web_search import is_web_search_configured, web_search
 from .zep_tools import (
     ZepToolsService, 
     SearchResult, 
@@ -1269,6 +1270,40 @@ TOOL_DESC_BY_NAME_EN = {
     "interview_agents": TOOL_DESC_INTERVIEW_AGENTS_EN,
 }
 
+# ── OpenReef: optional live-web search (Tavily) ──
+
+TOOL_DESC_WEB_SEARCH = """\
+【联网搜索 - 获取真实世界的最新信息】
+调用Tavily搜索真实的互联网，获取模拟世界之外的现实背景信息（新闻、市场数据、公开事件、政策文件等）。
+
+【使用场景】
+- 模拟涉及的背景事件在现实中已有最新进展
+- 需要真实市场数据、价格、时间表来支撑预测
+- 需要核实某个现实世界事实
+- 想让预测报告结合现实世界的最新动态
+
+【返回内容】
+- 搜索结果列表（标题、链接、摘要）"""
+
+TOOL_DESC_WEB_SEARCH_EN = """\
+【Web Search - Live information from the real internet】
+Search the real internet via Tavily for real-world context beyond the simulated world (news, market data, public events, policy documents).
+
+【Use when】
+- A background event in the simulation has real-world developments
+- You need real market data, prices, or timelines to support the prediction
+- You need to verify a real-world fact
+- You want the prediction report grounded in the latest real-world developments
+
+【Returns】
+- A list of results (title, link, snippet)"""
+
+WEB_SEARCH_ADVICE_ZH = """
+【联网搜索建议】web_search 工具可用：当需要模拟世界之外的真实背景（新闻、数据、公开事件）时调用它；引用网络信息时请注明来源链接。"""
+
+WEB_SEARCH_ADVICE_EN = """
+【Web search advice】The web_search tool is available: call it when you need real-world context beyond the simulated world (news, data, public events); cite source links when quoting web information."""
+
 
 # ═══════════════════════════════════════════════════════════════
 # ReportAgent 主类
@@ -1318,7 +1353,10 @@ class ReportAgent:
         
         self.llm = llm_client or LLMClient(stage="report")
         self.zep_tools = zep_tools or ZepToolsService()
-        
+
+        # OpenReef: cache for the web-search availability check (config + key)
+        self._web_search_available: Optional[bool] = None
+
         # 工具定义
         self.tools = self._define_tools()
         
@@ -1329,9 +1367,31 @@ class ReportAgent:
         
         logger.info(t('report.agentInitDone', graphId=graph_id, simulationId=simulation_id))
     
+    def _web_search_enabled(self) -> bool:
+        """OpenReef: the web_search tool exists only when this simulation
+        enabled it in config AND TAVILY_API_KEY is configured."""
+        if self._web_search_available is not None:
+            return self._web_search_available
+        available = False
+        if is_web_search_configured():
+            try:
+                config_path = os.path.join(
+                    Config.OASIS_SIMULATION_DATA_DIR,
+                    self.simulation_id,
+                    "simulation_config.json",
+                )
+                if os.path.exists(config_path):
+                    with open(config_path, "r", encoding="utf-8") as handle:
+                        sim_config = json.load(handle)
+                    available = bool((sim_config.get("web_search") or {}).get("enabled"))
+            except Exception as error:
+                logger.warning("Cannot read simulation config for web_search gating: %s", error)
+        self._web_search_available = available
+        return available
+
     def _define_tools(self) -> Dict[str, Dict[str, Any]]:
         """定义可用工具"""
-        return {
+        tools: Dict[str, Dict[str, Any]] = {
             "insight_forge": {
                 "name": "insight_forge",
                 "description": TOOL_DESC_INSIGHT_FORGE,
@@ -1365,6 +1425,16 @@ class ReportAgent:
                 }
             }
         }
+        if self._web_search_enabled():
+            tools["web_search"] = {
+                "name": "web_search",
+                "description": _pick_template(TOOL_DESC_WEB_SEARCH, TOOL_DESC_WEB_SEARCH_EN),
+                "parameters": {
+                    "query": "要搜索的网络关键词或问题",
+                    "max_results": "返回结果数量（可选，默认5，最大10）"
+                }
+            }
+        return tools
     
     def _execute_tool(self, tool_name: str, parameters: Dict[str, Any], report_context: str = "") -> str:
         """
@@ -1432,6 +1502,17 @@ class ReportAgent:
                     max_agents=max_agents
                 )
                 return result.to_text()
+
+            elif tool_name == "web_search":
+                # OpenReef: 联网搜索（Tavily）——真实互联网信息
+                query = parameters.get("query", "")
+                max_results = parameters.get("max_results", 5)
+                if isinstance(max_results, str):
+                    try:
+                        max_results = int(max_results)
+                    except ValueError:
+                        max_results = 5
+                return web_search(query, max_results)
             
             # ========== 向后兼容的旧工具（内部重定向到新工具） ==========
             
@@ -1475,7 +1556,7 @@ class ReportAgent:
             return f"工具执行失败: {str(e)}"
     
     # 合法的工具名称集合，用于裸 JSON 兜底解析时校验
-    VALID_TOOL_NAMES = {"insight_forge", "panorama_search", "quick_search", "interview_agents"}
+    VALID_TOOL_NAMES = {"insight_forge", "panorama_search", "quick_search", "interview_agents", "web_search"}
 
     def _parse_tool_calls(self, response: str) -> List[Dict[str, Any]]:
         """
@@ -1722,6 +1803,9 @@ class ReportAgent:
             tools_description=self._get_tools_description(),
         )
         system_prompt = f"{system_prompt}\n\n{get_language_instruction()}"
+        # OpenReef: surface the optional web-search tool to the section writer
+        if "web_search" in self.tools:
+            system_prompt = f"{system_prompt}{_pick_template(WEB_SEARCH_ADVICE_ZH, WEB_SEARCH_ADVICE_EN)}"
 
         # 构建用户prompt - 每个已完成章节各传入最大4000字
         if previous_sections:

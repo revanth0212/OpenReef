@@ -412,6 +412,7 @@ def prepare_simulation():
             "entity_types": ["Student", "PublicFigure"],  // 可选，指定实体类型
             "use_llm_for_profiles": true,                 // 可选，是否用LLM生成人设
             "parallel_profile_count": 5,                  // 可选，并行生成人设数量，默认5
+            "web_search_enabled": false,                  // 可选(OpenReef)，Agent联网搜索，需TAVILY_API_KEY，默认false
             "force_regenerate": false                     // 可选，强制重新生成，默认false
         }
     
@@ -497,6 +498,8 @@ def prepare_simulation():
         entity_types_list = data.get('entity_types')
         use_llm_for_profiles = data.get('use_llm_for_profiles', True)
         parallel_profile_count = data.get('parallel_profile_count', 5)
+        # OpenReef: opt-in web search for agents (requires TAVILY_API_KEY)
+        web_search_enabled = bool(data.get('web_search_enabled', False))
         
         # ========== 同步获取实体数量（在后台任务启动前） ==========
         # 这样前端在调用prepare后立即就能获取到预期Agent总数
@@ -617,7 +620,8 @@ def prepare_simulation():
                     defined_entity_types=entity_types_list,
                     use_llm_for_profiles=use_llm_for_profiles,
                     progress_callback=progress_callback,
-                    parallel_profile_count=parallel_profile_count
+                    parallel_profile_count=parallel_profile_count,
+                    web_search_enabled=web_search_enabled
                 )
 
                 if result_state.status == SimulationStatus.FAILED:

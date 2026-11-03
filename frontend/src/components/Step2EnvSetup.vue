@@ -435,6 +435,13 @@
             {{ $t('step2.initialActivationDesc') }}
           </p>
 
+          <!-- OpenReef: optional agent web search (requires TAVILY_API_KEY) -->
+          <label class="switch-control web-search-toggle">
+            <input type="checkbox" v-model="webSearchEnabled">
+            <span class="switch-track"></span>
+            <span class="switch-label">{{ $t('step2.webSearchToggle') }}</span>
+          </label>
+
           <div v-if="simulationConfig?.event_config" class="orchestration-content">
             <!-- 叙事方向 -->
             <div class="narrative-box">
@@ -779,6 +786,8 @@ let lastLoggedConfigStage = ''
 // 模拟轮数配置
 const useCustomRounds = ref(false) // 默认使用自动配置轮数
 const customMaxRounds = ref(40)   // 默认推荐40轮
+// OpenReef: 是否为Agent启用联网搜索（需服务端 TAVILY_API_KEY）
+const webSearchEnabled = ref(false)
 
 // Watch stage to update phase
 watch(currentStage, (newStage) => {
@@ -899,7 +908,8 @@ const startPrepareSimulation = async () => {
     const res = await prepareSimulation({
       simulation_id: props.simulationId,
       use_llm_for_profiles: true,
-      parallel_profile_count: 5
+      parallel_profile_count: 5,
+      web_search_enabled: webSearchEnabled.value
     })
     
     if (res.success && res.data) {
@@ -2725,6 +2735,11 @@ onUnmounted(() => {
 .modal-leave-to .profile-modal {
   transform: scale(0.95) translateY(10px);
   opacity: 0;
+}
+
+.web-search-toggle {
+  display: inline-flex;
+  margin-bottom: 14px;
 }
 
 /* ── OpenReef: LLM providers panel ── */

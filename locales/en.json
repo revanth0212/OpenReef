@@ -180,7 +180,8 @@
     "genderOther": "Other",
     "yearsOld": "years old",
     "initializing": "Initializing",
-    "generating": "Generating"
+    "generating": "Generating",
+    "webSearchToggle": "Enable agent web search (requires TAVILY_API_KEY)"
   },
   "step3": {
     "startGenerateReport": "Generate Report",

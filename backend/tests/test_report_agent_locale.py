@@ -120,4 +120,9 @@ def test_tools_description_switches_language():
 
 
 def test_all_tool_names_have_english_descriptions():
-    assert set(ra.TOOL_DESC_BY_NAME_EN) == ReportAgent.VALID_TOOL_NAMES
+    # Graph-backed tools resolve their EN description via the map; web_search
+    # picks its EN text directly at definition time (its own constants).
+    assert set(ra.TOOL_DESC_BY_NAME_EN) == (
+        ReportAgent.VALID_TOOL_NAMES - {"web_search"}
+    )
+    assert "Web Search" in ra.TOOL_DESC_WEB_SEARCH_EN.split("【")[1] or "Web Search" in ra.TOOL_DESC_WEB_SEARCH_EN

@@ -180,7 +180,8 @@
     "genderOther": "其他",
     "yearsOld": "岁",
     "initializing": "初始化",
-    "generating": "生成中"
+    "generating": "生成中",
+    "webSearchToggle": "为 Agent 启用联网搜索（需服务端配置 TAVILY_API_KEY）"
   },
   "step3": {
     "startGenerateReport": "开始生成结果报告",

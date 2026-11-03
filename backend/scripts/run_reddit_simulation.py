@@ -520,6 +520,29 @@ class RedditSimulationRunner:
         
         return active_agents
     
+    def _maybe_add_web_search_tool(self):
+        """OpenReef: attach the optional Tavily web-search tool to every agent.
+
+        No-op unless the simulation config enables it AND TAVILY_API_KEY is
+        set; failures never stop the simulation.
+        """
+        web_search_cfg = self.config.get("web_search") or {}
+        if not web_search_cfg.get("enabled"):
+            return
+        try:
+            from app.utils.web_search import is_web_search_configured, web_search
+            if not is_web_search_configured():
+                print("  [web_search] config enabled but TAVILY_API_KEY is not set; skipping")
+                return
+            from camel.toolkits import FunctionTool
+            tool = FunctionTool(web_search)
+            agents = self.agent_graph.get_agents()
+            for _agent_id, agent in agents:
+                agent.add_tool(tool)
+            print(f"  [web_search] Tavily search attached to {len(agents)} agents")
+        except Exception as e:
+            print(f"  [web_search] failed to attach tool (continuing without it): {e}")
+
     async def run(self, max_rounds: int = None):
         """运行Reddit模拟
         
@@ -567,6 +590,9 @@ class RedditSimulationRunner:
             model=model,
             available_actions=self.AVAILABLE_ACTIONS,
         )
+
+        # OpenReef: optional live-web search tool for agents (Tavily)
+        self._maybe_add_web_search_tool()
         
         db_path = self._get_db_path()
         if os.path.exists(db_path):

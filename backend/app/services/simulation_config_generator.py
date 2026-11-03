@@ -170,6 +170,10 @@ class SimulationParameters:
     # LLM配置
     llm_model: str = ""
     llm_base_url: str = ""
+
+    # OpenReef: web search (Tavily) for agents + report agent. Requires
+    # TAVILY_API_KEY; default off keeps upstream behavior.
+    web_search_enabled: bool = False
     
     # 生成元数据
     generated_at: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -190,6 +194,7 @@ class SimulationParameters:
             "reddit_config": asdict(self.reddit_config) if self.reddit_config else None,
             "llm_model": self.llm_model,
             "llm_base_url": self.llm_base_url,
+            "web_search": {"enabled": self.web_search_enabled},
             "generated_at": self.generated_at,
             "generation_reasoning": self.generation_reasoning,
         }
@@ -258,11 +263,12 @@ class SimulationConfigGenerator:
         entities: List[EntityNode],
         enable_twitter: bool = True,
         enable_reddit: bool = True,
+        web_search_enabled: bool = False,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> SimulationParameters:
         """
         智能生成完整的模拟配置（分步生成）
-        
+
         Args:
             simulation_id: 模拟ID
             project_id: 项目ID
@@ -272,8 +278,9 @@ class SimulationConfigGenerator:
             entities: 过滤后的实体列表
             enable_twitter: 是否启用Twitter
             enable_reddit: 是否启用Reddit
+            web_search_enabled: OpenReef 是否为Agent启用联网搜索（需 TAVILY_API_KEY）
             progress_callback: 进度回调函数(current_step, total_steps, message)
-            
+
         Returns:
             SimulationParameters: 完整的模拟参数
         """
@@ -379,6 +386,7 @@ class SimulationConfigGenerator:
             reddit_config=reddit_config,
             llm_model=self.model_name,
             llm_base_url=self.base_url,
+            web_search_enabled=web_search_enabled,
             generation_reasoning=" | ".join(reasoning_parts)
         )
         
