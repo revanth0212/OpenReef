@@ -75,7 +75,13 @@
     "layoutGraph": "图谱",
     "layoutSplit": "双栏",
     "layoutWorkbench": "工作台",
-    "stepNames": ["图谱构建", "环境搭建", "开始模拟", "报告生成", "深度互动"]
+    "stepNames": [
+      "图谱构建",
+      "环境搭建",
+      "开始模拟",
+      "报告生成",
+      "深度互动"
+    ]
   },
   "step1": {
     "ontologyGeneration": "本体生成",
@@ -663,5 +669,21 @@
     "llmSelectAgentFailed": "LLM选择Agent失败，使用默认选择: {error}",
     "generateInterviewQuestionsFailed": "生成采访问题失败: {error}",
     "generateInterviewSummaryFailed": "生成采访摘要失败: {error}"
+  },
+  "providers": {
+    "panelTitle": "LLM 提供方",
+    "panelDesc": "服务器上配置的多 LLM 提供方与降级链（LLM_PROVIDERS_JSON / LLM_PROVIDERS_FILE）。完全可选——未配置时全部使用单一已配置模型。",
+    "registryActive": "多 LLM 已启用",
+    "singleProvider": "单一提供方",
+    "activeModel": "当前模型",
+    "name": "名称",
+    "model": "模型",
+    "baseUrl": "Base URL",
+    "apiKey": "API Key",
+    "testerTitle": "测试提供方",
+    "testButton": "测试",
+    "testerFillAll": "请先填写 Base URL、API Key 和模型名称。",
+    "testOk": "连接成功，耗时 {ms} 毫秒",
+    "enabledCol": "已启用"
   }
 }

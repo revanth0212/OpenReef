@@ -1,6 +1,75 @@
 <template>
   <div class="env-setup-panel">
     <div class="scroll-container">
+      <!-- OpenReef: LLM Providers overview + tester -->
+      <div class="step-card providers-card" v-if="providersLoaded">
+        <div class="card-header">
+          <div class="step-info">
+            <span class="step-num">⚙</span>
+            <span class="step-title">{{ $t('providers.panelTitle') }}</span>
+          </div>
+          <div class="step-status">
+            <span v-if="providersInfo?.active" class="badge success">{{ $t('providers.registryActive') }}</span>
+            <span v-else class="badge pending">{{ $t('providers.singleProvider') }}</span>
+          </div>
+        </div>
+
+        <div class="card-content">
+          <p class="description">{{ $t('providers.panelDesc') }}</p>
+
+          <div class="info-card">
+            <div class="info-row">
+              <span class="info-label">{{ $t('providers.activeModel') }}</span>
+              <span class="info-value mono">{{ providersInfo?.legacy?.model || '-' }}</span>
+            </div>
+          </div>
+
+          <div v-if="providersInfo?.active" class="providers-table">
+            <div class="provider-row provider-head">
+              <span>{{ $t('providers.name') }}</span>
+              <span>{{ $t('providers.model') }}</span>
+              <span>{{ $t('providers.baseUrl') }}</span>
+              <span>{{ $t('providers.enabledCol') }}</span>
+            </div>
+            <div v-for="p in providersInfo.providers" :key="p.name" class="provider-row">
+              <span class="mono">{{ p.name }}</span>
+              <span class="mono">{{ p.model }}</span>
+              <span class="mono provider-url">{{ p.base_url }}</span>
+              <span>
+                <span v-if="p.enabled" class="badge success">{{ $t('common.completed') }}</span>
+                <span v-else class="badge pending">{{ $t('common.pending') }}</span>
+              </span>
+            </div>
+            <div v-if="providersInfo.chains && Object.keys(providersInfo.chains).length" class="provider-chains">
+              <div v-for="(names, stage) in providersInfo.chains" :key="stage" class="chain-row">
+                <span class="mono chain-stage">{{ stage }}</span>
+                <span class="mono">{{ names.join(' → ') }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="provider-tester">
+            <span class="section-title">{{ $t('providers.testerTitle') }}</span>
+            <div class="tester-form">
+              <input v-model="tester.base_url" class="tester-input" :placeholder="$t('providers.baseUrl')" />
+              <input v-model="tester.api_key" class="tester-input" type="password" :placeholder="$t('providers.apiKey')" />
+              <input v-model="tester.model" class="tester-input" :placeholder="$t('providers.model')" />
+              <button class="action-btn secondary tester-btn" :disabled="testerRunning" @click="runProviderTest">
+                {{ testerRunning ? $t('common.processing') : $t('providers.testButton') }}
+              </button>
+            </div>
+            <div v-if="testerResult" class="tester-result" :class="{ ok: testerResult.ok, fail: !testerResult.ok }">
+              <template v-if="testerResult.ok">
+                ✓ {{ $t('providers.testOk', { ms: testerResult.latency_ms }) }}
+              </template>
+              <template v-else>
+                ✗ {{ testerResult.error }}
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Step 01: 模拟实例 -->
       <div class="step-card" :class="{ 'active': phase === 0, 'completed': phase > 0 }">
         <div class="card-header">
@@ -641,8 +710,44 @@ import {
   getSimulationConfig,
   getSimulationConfigRealtime
 } from '../api/simulation'
+import { getLLMProviders, testLLMProvider } from '../api/llm'
 
 const { t } = useI18n()
+
+// OpenReef: multi-LLM provider overview + tester
+const providersLoaded = ref(false)
+const providersInfo = ref(null)
+const tester = ref({ base_url: '', api_key: '', model: '' })
+const testerRunning = ref(false)
+const testerResult = ref(null)
+
+const loadProviders = async () => {
+  try {
+    const res = await getLLMProviders()
+    providersInfo.value = res.data || null
+  } catch (e) {
+    providersInfo.value = null
+  } finally {
+    providersLoaded.value = true
+  }
+}
+
+const runProviderTest = async () => {
+  if (!tester.value.base_url || !tester.value.api_key || !tester.value.model) {
+    testerResult.value = { ok: false, error: t('providers.testerFillAll') }
+    return
+  }
+  testerRunning.value = true
+  testerResult.value = null
+  try {
+    const res = await testLLMProvider({ ...tester.value })
+    testerResult.value = res.data || { ok: false, error: t('common.unknownError') }
+  } catch (e) {
+    testerResult.value = { ok: false, error: e.message || t('common.unknownError') }
+  } finally {
+    testerRunning.value = false
+  }
+}
 
 const props = defineProps({
   simulationId: String,  // 从父组件传入
@@ -1087,6 +1192,7 @@ watch(() => props.systemLogs?.length, () => {
 })
 
 onMounted(() => {
+  loadProviders()
   // 自动开始准备流程
   if (props.simulationId) {
     addLog(t('log.step2Init'))
@@ -2619,5 +2725,130 @@ onUnmounted(() => {
 .modal-leave-to .profile-modal {
   transform: scale(0.95) translateY(10px);
   opacity: 0;
+}
+
+/* ── OpenReef: LLM providers panel ── */
+.providers-card {
+  margin-bottom: 16px;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.providers-table {
+  margin-top: 4px;
+  border: 1px solid #EEE;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.provider-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1.4fr 2fr 0.8fr;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  border-bottom: 1px solid #F0F0F0;
+  align-items: center;
+}
+
+.provider-row:last-of-type {
+  border-bottom: none;
+}
+
+.provider-head {
+  background: #FAFAFA;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.provider-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #888;
+}
+
+.provider-chains {
+  padding: 8px 12px;
+  background: #FAFAFA;
+  border-top: 1px solid #EEE;
+}
+
+.chain-row {
+  display: flex;
+  gap: 10px;
+  font-size: 10px;
+  padding: 2px 0;
+  color: #666;
+}
+
+.chain-stage {
+  min-width: 72px;
+  font-weight: 700;
+  color: #333;
+  text-transform: uppercase;
+}
+
+.provider-tester {
+  margin-top: 14px;
+}
+
+.provider-tester .section-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.tester-form {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tester-input {
+  flex: 1 1 160px;
+  min-width: 140px;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  border: 1px solid #DDD;
+  border-radius: 6px;
+  background: #FAFAFA;
+}
+
+.tester-input:focus {
+  outline: none;
+  border-color: #000;
+  background: #FFF;
+}
+
+.tester-btn {
+  padding: 8px 16px;
+  font-size: 12px;
+}
+
+.tester-result {
+  margin-top: 8px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 8px 10px;
+  border-radius: 6px;
+  word-break: break-all;
+}
+
+.tester-result.ok {
+  background: #E8F5E9;
+  color: #2E7D32;
+}
+
+.tester-result.fail {
+  background: #FFEBEE;
+  color: #C62828;
 }
 </style>

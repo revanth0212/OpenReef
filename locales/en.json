@@ -75,7 +75,13 @@
     "layoutGraph": "Graph",
     "layoutSplit": "Split",
     "layoutWorkbench": "Workbench",
-    "stepNames": ["Graph Build", "Env Setup", "Run Simulation", "Report Generation", "Deep Interaction"]
+    "stepNames": [
+      "Graph Build",
+      "Env Setup",
+      "Run Simulation",
+      "Report Generation",
+      "Deep Interaction"
+    ]
   },
   "step1": {
     "ontologyGeneration": "Ontology Generation",
@@ -663,5 +669,21 @@
     "llmSelectAgentFailed": "LLM agent selection failed, using default selection: {error}",
     "generateInterviewQuestionsFailed": "Failed to generate interview questions: {error}",
     "generateInterviewSummaryFailed": "Failed to generate interview summary: {error}"
+  },
+  "providers": {
+    "panelTitle": "LLM Providers",
+    "panelDesc": "Providers and failover chains configured on the server (LLM_PROVIDERS_JSON / LLM_PROVIDERS_FILE). Optional — with no registry, the single configured model is used everywhere.",
+    "registryActive": "Multi-LLM active",
+    "singleProvider": "Single provider",
+    "activeModel": "Active model",
+    "name": "Name",
+    "model": "Model",
+    "baseUrl": "Base URL",
+    "apiKey": "API key",
+    "testerTitle": "Test a provider",
+    "testButton": "Test",
+    "testerFillAll": "Fill in base URL, API key and model first.",
+    "testOk": "Connected in {ms} ms",
+    "enabledCol": "Enabled"
   }
 }
