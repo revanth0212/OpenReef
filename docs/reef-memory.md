@@ -58,9 +58,14 @@ REEF_MEMORY_EMBEDDER_API_KEY=root
 REEF_MEMORY_EMBEDDER_MODEL=embeddinggemma-2-8bit
 ```
 
-Vector dimensions are known for common models (embeddinggemma 768,
-nomic-embed-text 768, mxbai-embed-large 1024, OpenAI 3-small 1536 …);
-override with `REEF_MEMORY_EMBEDDER_DIM` for anything unrecognized.
+**Vector dimension**: measured automatically — at first use ReefMemory
+sends one tiny embedding request and counts the dimensions, so any model
+works with no bookkeeping. To skip the probe (offline starts, strict
+setups), set it yourself:
+
+```bash
+REEF_MEMORY_EMBEDDER_DIM=768
+```
 
 ## Configuration
 

@@ -338,7 +338,6 @@ def test_embedder_credentials_default_to_chain_head(monkeypatch):
         "base_url": "https://llm.example/v1",
         "api_key": "pk",
         "model": "text-embedding-3-small",
-        "dim": 1536,
     }
 
 
@@ -346,7 +345,6 @@ def test_embedder_credentials_fully_overridable(monkeypatch):
     monkeypatch.setenv("REEF_MEMORY_EMBEDDER_BASE_URL", "https://embed.example/v1")
     monkeypatch.setenv("REEF_MEMORY_EMBEDDER_API_KEY", "embed-key")
     monkeypatch.setenv("REEF_MEMORY_EMBEDDER_MODEL", "custom-model")
-    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_DIM", "1024")
     client = GraphitiCompatClient()
     head = SimpleNamespace(api_key="pk", base_url="https://llm.example/v1", model="m")
     creds = client._embedder_credentials(head)
@@ -354,16 +352,44 @@ def test_embedder_credentials_fully_overridable(monkeypatch):
         "base_url": "https://embed.example/v1",
         "api_key": "embed-key",
         "model": "custom-model",
-        "dim": 1024,
     }
 
 
-def test_embedder_dim_known_local_models(monkeypatch):
-    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_MODEL", "embeddinggemma-2-8bit")
+def test_embedding_dim_user_override_skips_probe(monkeypatch):
+    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_DIM", "1024")
+    client = GraphitiCompatClient()
+
+    def boom(*args, **kwargs):
+        raise AssertionError("probe must not run when the override is set")
+
+    monkeypatch.setattr(client, "_probe_embedding_dim", boom)
+    assert client._resolve_embedding_dim({"base_url": "u", "api_key": "k", "model": "m"}) == 1024
+
+
+def test_embedding_dim_probed_automatically(monkeypatch):
     monkeypatch.delenv("REEF_MEMORY_EMBEDDER_DIM", raising=False)
     client = GraphitiCompatClient()
-    head = SimpleNamespace(api_key="k", base_url=None, model="m")
-    assert client._embedder_credentials(head)["dim"] == 768
+    monkeypatch.setattr(client, "_probe_embedding_dim", lambda *a: 768)
+    assert client._resolve_embedding_dim({"base_url": "u", "api_key": "k", "model": "m"}) == 768
+
+
+def test_embedding_dim_probe_failure_points_to_env(monkeypatch):
+    monkeypatch.delenv("REEF_MEMORY_EMBEDDER_DIM", raising=False)
+    client = GraphitiCompatClient()
+
+    def failing(*args, **kwargs):
+        raise ConnectionError("no route")
+
+    monkeypatch.setattr(client, "_probe_embedding_dim", failing)
+    with pytest.raises(RuntimeError, match="REEF_MEMORY_EMBEDDER_DIM=768"):
+        client._resolve_embedding_dim({"base_url": "u", "api_key": "k", "model": "m"})
+
+
+def test_embedding_dim_invalid_override_rejected(monkeypatch):
+    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_DIM", "0")
+    client = GraphitiCompatClient()
+    with pytest.raises(ValueError, match="positive integer"):
+        client._resolve_embedding_dim({"base_url": "u", "api_key": "k", "model": "m"})
 
 
 # ── real embedded Kuzu (no mocks, no network) ───────────────────────
@@ -375,6 +401,7 @@ def test_real_kuzu_lifecycle_offline(monkeypatch, tmp_path):
     (no episodes are added). Proves the zero-infra native path works.
     """
     monkeypatch.setenv("REEF_MEMORY_DIR", str(tmp_path))
+    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_DIM", "768")  # skip the network probe
     client = GraphitiCompatClient()
     client._ensure_graphiti()
 

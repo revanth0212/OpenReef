@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
+import httpx
 from zep_cloud import NotFoundError
 
 from graphiti_core import errors as graphiti_errors
@@ -44,17 +45,6 @@ from graphiti_core.edges import EntityEdge
 logger = logging.getLogger(__name__)
 
 DEFAULT_EMBEDDER_MODEL = "text-embedding-3-small"
-# Known embedding dimensions; anything unrecognized falls back to 1536 unless
-# REEF_MEMORY_EMBEDDER_DIM is set. Local models (oMLX etc.) included so the
-# out-of-box story stays "set the model name, done".
-EMBEDDER_DIMS = {
-    "text-embedding-3-small": 1536,
-    "text-embedding-3-large": 3072,
-    "embeddinggemma-2-8bit": 768,
-    "embeddinggemma-300m": 768,
-    "nomic-embed-text": 768,
-    "mxbai-embed-large": 1024,
-}
 
 
 def _not_found(message: str) -> NotFoundError:
@@ -397,17 +387,50 @@ class GraphitiCompatClient:
             REEF_MEMORY_EMBEDDER_BASE_URL   provider base URL (optional)
             REEF_MEMORY_EMBEDDER_API_KEY    provider key (optional)
         """
-        model = os.environ.get("REEF_MEMORY_EMBEDDER_MODEL", DEFAULT_EMBEDDER_MODEL)
-        dim = int(os.environ.get(
-            "REEF_MEMORY_EMBEDDER_DIM",
-            EMBEDDER_DIMS.get(model, 1536),
-        ))
         return {
             "base_url": os.environ.get("REEF_MEMORY_EMBEDDER_BASE_URL") or head.base_url or None,
             "api_key": os.environ.get("REEF_MEMORY_EMBEDDER_API_KEY") or head.api_key or "missing",
-            "model": model,
-            "dim": dim,
+            "model": os.environ.get("REEF_MEMORY_EMBEDDER_MODEL", DEFAULT_EMBEDDER_MODEL),
         }
+
+    def _probe_embedding_dim(self, base_url: str, api_key: str, model: str) -> int:
+        """Ask the embeddings endpoint for its vector dimension (one tiny call).
+
+        Runs at memory-backend init — models change daily, so we measure
+        instead of maintaining a lookup table.
+        """
+        url = (base_url or "https://api.openai.com/v1").rstrip("/") + "/embeddings"
+        with httpx.Client(timeout=20.0) as client:
+            response = client.post(
+                url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"model": model, "input": "dimension probe"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        vectors = payload.get("data") or []
+        if not vectors or not vectors[0].get("embedding"):
+            raise RuntimeError(f"embeddings endpoint returned no vector for model {model!r}")
+        return len(vectors[0]["embedding"])
+
+    def _resolve_embedding_dim(self, creds: Dict[str, Any]) -> int:
+        """User override wins; otherwise probe the endpoint automatically."""
+        override = os.environ.get("REEF_MEMORY_EMBEDDER_DIM")
+        if override:
+            dim = int(override)
+            if dim < 1:
+                raise ValueError("REEF_MEMORY_EMBEDDER_DIM must be a positive integer")
+            return dim
+        try:
+            return self._probe_embedding_dim(
+                creds["base_url"] or "", creds["api_key"] or "", creds["model"]
+            )
+        except Exception as error:
+            raise RuntimeError(
+                "ReefMemory cannot determine the embedding vector dimension "
+                f"automatically ({error}). Set it explicitly in .env, e.g. "
+                "REEF_MEMORY_EMBEDDER_DIM=768"
+            ) from error
 
     def _ensure_graphiti(self) -> None:
         if self._graphiti is not None:
@@ -448,7 +471,7 @@ class GraphitiCompatClient:
                 api_key=embedder_creds["api_key"],
                 base_url=embedder_creds["base_url"],
                 embedding_model=embedder_creds["model"],
-                embedding_dim=embedder_creds["dim"],
+                embedding_dim=self._resolve_embedding_dim(embedder_creds),
             )
         )
         logger.info(
