@@ -376,6 +376,23 @@ class GraphitiCompatClient:
         result = self._run_optional(coro)
         return list(result or [])
 
+    def _embedder_credentials(self, head: Any) -> Dict[str, Any]:
+        """Embedding endpoint credentials.
+
+        Defaults to the ontology chain head (same provider as extraction),
+        with independent overrides so embeddings can live on a different
+        provider entirely:
+
+            REEF_MEMORY_EMBEDDER_MODEL      embedding model name
+            REEF_MEMORY_EMBEDDER_BASE_URL   provider base URL (optional)
+            REEF_MEMORY_EMBEDDER_API_KEY    provider key (optional)
+        """
+        return {
+            "base_url": os.environ.get("REEF_MEMORY_EMBEDDER_BASE_URL") or head.base_url or None,
+            "api_key": os.environ.get("REEF_MEMORY_EMBEDDER_API_KEY") or head.api_key or "missing",
+            "model": os.environ.get("REEF_MEMORY_EMBEDDER_MODEL", DEFAULT_EMBEDDER_MODEL),
+        }
+
     def _ensure_graphiti(self) -> None:
         if self._graphiti is not None:
             return
@@ -399,7 +416,7 @@ class GraphitiCompatClient:
 
         chain = resolve_chain("ontology")
         head = chain[0]
-        embedder_model = os.environ.get("REEF_MEMORY_EMBEDDER_MODEL", DEFAULT_EMBEDDER_MODEL)
+        embedder_creds = self._embedder_credentials(head)
 
         driver = KuzuDriver(db=os.path.join(self._db_dir, "kuzu.db"))
         llm_client = OpenAIClient(
@@ -412,17 +429,18 @@ class GraphitiCompatClient:
         )
         embedder = OpenAIEmbedder(
             OpenAIEmbedderConfig(
-                api_key=head.api_key or "missing",
-                base_url=head.base_url or None,
-                embedding_model=embedder_model,
-                embedding_dim=EMBEDDER_DIMS.get(embedder_model, 1536),
+                api_key=embedder_creds["api_key"],
+                base_url=embedder_creds["base_url"],
+                embedding_model=embedder_creds["model"],
+                embedding_dim=EMBEDDER_DIMS.get(embedder_creds["model"], 1536),
             )
         )
         logger.info(
-            "ReefMemory: embedded graph store at %s (extract=%s, embed=%s)",
+            "ReefMemory: embedded graph store at %s (extract=%s, embed=%s @ %s)",
             self._db_dir,
             head.model,
-            embedder_model,
+            embedder_creds["model"],
+            embedder_creds["base_url"] or "same-as-extraction",
         )
         self._driver = driver
         self._graphiti = Graphiti(

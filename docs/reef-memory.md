@@ -31,12 +31,23 @@ unchanged. `app/memory/factory.py` swaps implementations via
 | `graphiti` (default) | LLM config only (extraction + embeddings) | `uploads/reef-memory/` |
 | `zep` | `ZEP_API_KEY` | Zep Cloud |
 
-Extraction and embeddings use your configured provider (the `ontology`
-chain head from `llm.config.json`, or the legacy `LLM_*` vars). The
-provider must offer an OpenAI-compatible **chat** and **embeddings**
-endpoint (e.g. OpenAI, or any endpoint serving both). Override the
-embedding model with `REEF_MEMORY_EMBEDDER_MODEL` (default
-`text-embedding-3-small`).
+Extraction uses your configured provider (the `ontology` chain head from
+`llm.config.json`, or the legacy `LLM_*` vars). Embeddings default to the
+same provider but can live on a **different provider entirely**:
+
+```bash
+REEF_MEMORY_EMBEDDER_MODEL=text-embedding-3-small   # default
+REEF_MEMORY_EMBEDDER_BASE_URL=                      # optional: other provider
+REEF_MEMORY_EMBEDDER_API_KEY=                       # optional: other key
+```
+
+Example — extract with a local model, embed with OpenAI:
+
+```bash
+REEF_MEMORY_EMBEDDER_BASE_URL=https://api.openai.com/v1
+REEF_MEMORY_EMBEDDER_API_KEY=${OPENAI_API_KEY}
+REEF_MEMORY_EMBEDDER_MODEL=text-embedding-3-small
+```
 
 ## Configuration
 

@@ -322,6 +322,38 @@ def test_episode_get_missing_raises_404(monkeypatch, tmp_path):
     assert getattr(exc_info.value, "status_code", None) == 404
 
 
+# ── embedding provider independence ─────────────────────────────────
+
+def test_embedder_credentials_default_to_chain_head(monkeypatch):
+    from app.utils.llm_providers import ChainEntry
+
+    monkeypatch.delenv("REEF_MEMORY_EMBEDDER_BASE_URL", raising=False)
+    monkeypatch.delenv("REEF_MEMORY_EMBEDDER_API_KEY", raising=False)
+    monkeypatch.delenv("REEF_MEMORY_EMBEDDER_MODEL", raising=False)
+    client = GraphitiCompatClient()
+    head = ChainEntry(api_key="pk", base_url="https://llm.example/v1", model="m", provider="p")
+    creds = client._embedder_credentials(head)
+    assert creds == {
+        "base_url": "https://llm.example/v1",
+        "api_key": "pk",
+        "model": "text-embedding-3-small",
+    }
+
+
+def test_embedder_credentials_fully_overridable(monkeypatch):
+    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_BASE_URL", "https://embed.example/v1")
+    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_API_KEY", "embed-key")
+    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_MODEL", "bge-m3")
+    client = GraphitiCompatClient()
+    head = SimpleNamespace(api_key="pk", base_url="https://llm.example/v1", model="m")
+    creds = client._embedder_credentials(head)
+    assert creds == {
+        "base_url": "https://embed.example/v1",
+        "api_key": "embed-key",
+        "model": "bge-m3",
+    }
+
+
 # ── real embedded Kuzu (no mocks, no network) ───────────────────────
 
 def test_real_kuzu_lifecycle_offline(monkeypatch, tmp_path):
