@@ -31,6 +31,12 @@ class Config:
     
     # Zep配置
     ZEP_API_KEY = os.environ.get('ZEP_API_KEY')
+
+    # OpenReef ReefMemory: graph memory backend.
+    #   graphiti (default) — native embedded store (Graphiti + Kuzu), no key,
+    #                        data lives under the uploads volume.
+    #   zep                — legacy Zep Cloud (requires ZEP_API_KEY).
+    MEMORY_BACKEND = os.environ.get('MEMORY_BACKEND', 'graphiti')
     
     # 文件上传配置
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
@@ -64,12 +70,18 @@ class Config:
     def validate(cls) -> list[str]:
         """验证必要配置"""
         errors: list[str] = []
+        backend = (cls.MEMORY_BACKEND or "graphiti").lower()
+        if backend == "auto":
+            backend = "graphiti"
+        if backend == "zep":
+            if not cls.ZEP_API_KEY:
+                errors.append("ZEP_API_KEY 未配置")
+            if os.environ.get("ZEP_API_URL"):
+                errors.append("ZEP_API_URL 不受支持；MiroFish 仅连接 Zep Cloud")
+        elif backend not in {"graphiti", "zep"}:
+            errors.append(f"未知 MEMORY_BACKEND: {cls.MEMORY_BACKEND}（可选 graphiti|zep|auto）")
         if not cls.LLM_API_KEY:
             errors.append("LLM_API_KEY 未配置")
-        if not cls.ZEP_API_KEY:
-            errors.append("ZEP_API_KEY 未配置")
-        if os.environ.get("ZEP_API_URL"):
-            errors.append("ZEP_API_URL 不受支持；MiroFish 仅连接 Zep Cloud")
         if cls.DEBUG:
             import warnings
             warnings.warn("Flask DEBUG mode is enabled. Do not use in production.", RuntimeWarning)

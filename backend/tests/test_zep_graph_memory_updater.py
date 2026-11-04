@@ -37,7 +37,10 @@ def _client(add):
 
 def _updater(monkeypatch, add, simulation_id="sim-1"):
     client = _client(add)
+    # OpenReef: construction goes through the memory factory now; keep the
+    # fake client injected at both names so this tests the updater, not the backend.
     monkeypatch.setattr(updater_module, "get_zep_client", lambda _key: client)
+    monkeypatch.setattr(updater_module, "get_memory_client", lambda api_key=None: client)
     updater = ZepGraphMemoryUpdater(
         "graph-1",
         api_key="test-key",

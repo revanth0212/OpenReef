@@ -97,3 +97,13 @@ Everything must behave exactly like upstream MiroFish.
 - `backend/tests` pytest (188 tests) runs on every push via
   `.github/workflows/test.yml`.
 - Frontend `npm run build` verified locally.
+
+### Feature 7 — ReefMemory (native graph memory)
+
+1. **Default (no ZEP_API_KEY in .env)**: run the full flow — graph build,
+   prepare, sim, report, graph panel. Everything must work with zero Zep
+   involvement; `~/mirofish-data/reef-memory/` appears on the host.
+2. **Backend switch**: `MEMORY_BACKEND=zep` + a Zep key restores the
+   legacy behavior for comparison.
+3. Embeddings note: the provider needs an OpenAI-compatible embeddings
+   endpoint; override the model via `REEF_MEMORY_EMBEDDER_MODEL`.

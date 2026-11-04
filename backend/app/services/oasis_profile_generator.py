@@ -21,6 +21,7 @@ from ..utils.logger import get_logger
 from ..utils.locale import get_language_instruction, get_locale, set_locale, t
 from ..utils.llm_providers import chain_head_credentials
 from ..utils.openai_chat_compat import create_chat_completion, extract_chat_completion_text
+from ..memory import get_memory_client, memory_backend_name
 from ..utils.zep import (
     call_zep_read_with_retry,
     get_zep_client,
@@ -272,9 +273,9 @@ class OasisProfileGenerator:
         self.zep_client = None
         self.graph_id = graph_id
         
-        if self.zep_api_key:
+        if self.zep_api_key or memory_backend_name() != "zep":
             try:
-                self.zep_client = get_zep_client(self.zep_api_key)
+                self.zep_client = get_memory_client(api_key=self.zep_api_key)
             except Exception as e:
                 logger.warning(f"Zep客户端初始化失败: {e}")
     

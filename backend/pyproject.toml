@@ -19,6 +19,10 @@ dependencies = [
     # Zep Cloud
     "zep-cloud==3.25.0",
     "httpx>=0.27.0",
+
+    # OpenReef ReefMemory: native graph memory (Graphiti engine + embedded Kuzu store)
+    "graphiti-core>=0.31",
+    "kuzu>=0.8",
     
     # OASIS 社交媒体模拟
     "camel-oasis==0.2.5",
@@ -51,6 +55,11 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
 ]
+
+[tool.uv]
+# camel-oasis pins neo4j==5.23.0, but its Neo4j path is unused by MiroFish
+# (OASIS runs on SQLite) and graphiti-core needs >=5.26. Safe to override.
+override-dependencies = ["neo4j>=5.26.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
