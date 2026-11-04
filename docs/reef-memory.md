@@ -49,6 +49,19 @@ REEF_MEMORY_EMBEDDER_API_KEY=${OPENAI_API_KEY}
 REEF_MEMORY_EMBEDDER_MODEL=text-embedding-3-small
 ```
 
+Example — everything local with oMLX (embeddings served by the same
+oMLX instance, bypassing the chat shim):
+
+```bash
+REEF_MEMORY_EMBEDDER_BASE_URL=http://host.container.internal:8000/v1
+REEF_MEMORY_EMBEDDER_API_KEY=root
+REEF_MEMORY_EMBEDDER_MODEL=embeddinggemma-2-8bit
+```
+
+Vector dimensions are known for common models (embeddinggemma 768,
+nomic-embed-text 768, mxbai-embed-large 1024, OpenAI 3-small 1536 …);
+override with `REEF_MEMORY_EMBEDDER_DIM` for anything unrecognized.
+
 ## Configuration
 
 ```bash

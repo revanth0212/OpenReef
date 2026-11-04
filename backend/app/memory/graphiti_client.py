@@ -44,7 +44,17 @@ from graphiti_core.edges import EntityEdge
 logger = logging.getLogger(__name__)
 
 DEFAULT_EMBEDDER_MODEL = "text-embedding-3-small"
-EMBEDDER_DIMS = {"text-embedding-3-small": 1536, "text-embedding-3-large": 3072}
+# Known embedding dimensions; anything unrecognized falls back to 1536 unless
+# REEF_MEMORY_EMBEDDER_DIM is set. Local models (oMLX etc.) included so the
+# out-of-box story stays "set the model name, done".
+EMBEDDER_DIMS = {
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+    "embeddinggemma-2-8bit": 768,
+    "embeddinggemma-300m": 768,
+    "nomic-embed-text": 768,
+    "mxbai-embed-large": 1024,
+}
 
 
 def _not_found(message: str) -> NotFoundError:
@@ -387,10 +397,16 @@ class GraphitiCompatClient:
             REEF_MEMORY_EMBEDDER_BASE_URL   provider base URL (optional)
             REEF_MEMORY_EMBEDDER_API_KEY    provider key (optional)
         """
+        model = os.environ.get("REEF_MEMORY_EMBEDDER_MODEL", DEFAULT_EMBEDDER_MODEL)
+        dim = int(os.environ.get(
+            "REEF_MEMORY_EMBEDDER_DIM",
+            EMBEDDER_DIMS.get(model, 1536),
+        ))
         return {
             "base_url": os.environ.get("REEF_MEMORY_EMBEDDER_BASE_URL") or head.base_url or None,
             "api_key": os.environ.get("REEF_MEMORY_EMBEDDER_API_KEY") or head.api_key or "missing",
-            "model": os.environ.get("REEF_MEMORY_EMBEDDER_MODEL", DEFAULT_EMBEDDER_MODEL),
+            "model": model,
+            "dim": dim,
         }
 
     def _ensure_graphiti(self) -> None:
@@ -432,7 +448,7 @@ class GraphitiCompatClient:
                 api_key=embedder_creds["api_key"],
                 base_url=embedder_creds["base_url"],
                 embedding_model=embedder_creds["model"],
-                embedding_dim=EMBEDDER_DIMS.get(embedder_creds["model"], 1536),
+                embedding_dim=embedder_creds["dim"],
             )
         )
         logger.info(

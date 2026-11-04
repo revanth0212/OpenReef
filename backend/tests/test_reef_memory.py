@@ -330,6 +330,7 @@ def test_embedder_credentials_default_to_chain_head(monkeypatch):
     monkeypatch.delenv("REEF_MEMORY_EMBEDDER_BASE_URL", raising=False)
     monkeypatch.delenv("REEF_MEMORY_EMBEDDER_API_KEY", raising=False)
     monkeypatch.delenv("REEF_MEMORY_EMBEDDER_MODEL", raising=False)
+    monkeypatch.delenv("REEF_MEMORY_EMBEDDER_DIM", raising=False)
     client = GraphitiCompatClient()
     head = ChainEntry(api_key="pk", base_url="https://llm.example/v1", model="m", provider="p")
     creds = client._embedder_credentials(head)
@@ -337,21 +338,32 @@ def test_embedder_credentials_default_to_chain_head(monkeypatch):
         "base_url": "https://llm.example/v1",
         "api_key": "pk",
         "model": "text-embedding-3-small",
+        "dim": 1536,
     }
 
 
 def test_embedder_credentials_fully_overridable(monkeypatch):
     monkeypatch.setenv("REEF_MEMORY_EMBEDDER_BASE_URL", "https://embed.example/v1")
     monkeypatch.setenv("REEF_MEMORY_EMBEDDER_API_KEY", "embed-key")
-    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_MODEL", "bge-m3")
+    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_MODEL", "custom-model")
+    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_DIM", "1024")
     client = GraphitiCompatClient()
     head = SimpleNamespace(api_key="pk", base_url="https://llm.example/v1", model="m")
     creds = client._embedder_credentials(head)
     assert creds == {
         "base_url": "https://embed.example/v1",
         "api_key": "embed-key",
-        "model": "bge-m3",
+        "model": "custom-model",
+        "dim": 1024,
     }
+
+
+def test_embedder_dim_known_local_models(monkeypatch):
+    monkeypatch.setenv("REEF_MEMORY_EMBEDDER_MODEL", "embeddinggemma-2-8bit")
+    monkeypatch.delenv("REEF_MEMORY_EMBEDDER_DIM", raising=False)
+    client = GraphitiCompatClient()
+    head = SimpleNamespace(api_key="k", base_url=None, model="m")
+    assert client._embedder_credentials(head)["dim"] == 768
 
 
 # ── real embedded Kuzu (no mocks, no network) ───────────────────────
