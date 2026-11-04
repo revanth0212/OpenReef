@@ -52,17 +52,23 @@ Everything must behave exactly like upstream MiroFish.
 
 1. **No registry:** `curl http://127.0.0.1:5001/api/llm/providers` →
    `"active": false`. Step-2 panel shows "Single provider".
-2. **With registry:** add to `.env` and restart:
+2. **With registry:** create `llm.config.json` next to your `.env` (copy
+   `llm.config.example.json` from the fork as a starting point), restart —
+   the run script mounts it automatically:
 
-   ```bash
-   LLM_PROVIDERS_JSON={"providers":[
-     {"name":"primary","base_url":"https://api.openai.com/v1","api_key":"${OPENAI_API_KEY}","model":"gpt-4.1-mini"},
-     {"name":"local","base_url":"http://host.container.internal:8001/v1","api_key":"root","model":"Qwen3.5-4B-MLX-4bit"}
-   ],"chains":{"default":["primary"],"simulation":["local"]}}
+   ```json
+   {
+     "providers": [
+       {"name":"primary","base_url":"https://api.openai.com/v1","api_key":"${OPENAI_API_KEY}","model":"gpt-4.1-mini"},
+       {"name":"local","base_url":"http://host.container.internal:8001/v1","api_key":"root","model":"Qwen3.5-4B-MLX-4bit"}
+     ],
+     "chains":{"default":["primary"],"simulation":["local"]}
+   }
    ```
 
    Panel now lists providers + chains; the **Test** button pings any
-   provider and shows latency.
+   provider and shows latency. (Advanced: `LLM_PROVIDERS_FILE` /
+   `LLM_PROVIDERS_JSON` env vars still work — see docs/multi-llm.md.)
 3. **Failover:** point the default chain's first provider at a dead URL
    (`http://127.0.0.1:9/v1`) with a real second entry → build a graph →
    backend logs show `failing over to next provider` and the step still

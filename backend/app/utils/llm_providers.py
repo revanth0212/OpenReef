@@ -8,10 +8,23 @@ credentials).
 
 Everything here is opt-in. Existing MiroFish setups — LLM_BASE_URL,
 LLM_API_KEY, LLM_MODEL_NAME — keep working untouched: they form the
-implicit single-entry "default" chain. The registry activates only when
-LLM_PROVIDERS_JSON or LLM_PROVIDERS_FILE is set.
+implicit single-entry "default" chain. The registry activates when a
+config file or env var provides one.
 
-Provider registry JSON schema::
+Configuration methods, in priority order:
+
+1. ``LLM_PROVIDERS_JSON`` — inline JSON env var (escape hatch for
+   Docker-only setups; clunky, which is why it's last resort).
+2. ``LLM_PROVIDERS_FILE`` — path to your own JSON file anywhere.
+3. ``llm.config.json`` — the convention: a file auto-detected at
+   ``backend/llm.config.json`` (dev) or ``/app/backend/llm.config.json``
+   (container; the run script mounts it read-only when present).
+
+Recommended: put ``llm.config.json`` next to your ``.env`` and let the
+container pick it up — same workflow as today's LLM setup, no JSON in
+env vars.
+
+Config file schema::
 
     {
       "providers": [
@@ -177,6 +190,16 @@ def _parse_registry(raw: Dict[str, Any]) -> ProviderRegistry:
     return ProviderRegistry(providers=providers, chains=chains)
 
 
+def _default_config_candidates() -> List[str]:
+    """Well-known locations for llm.config.json, in priority order."""
+    return [
+        "/app/backend/llm.config.json",  # container mount (OpenReef run script)
+        os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "llm.config.json")
+        ),  # backend/llm.config.json (development)
+    ]
+
+
 def _load_raw() -> Optional[Dict[str, Any]]:
     inline = os.environ.get("LLM_PROVIDERS_JSON", "").strip()
     if inline:
@@ -189,15 +212,20 @@ def _load_raw() -> Optional[Dict[str, Any]]:
 
     path = os.environ.get("LLM_PROVIDERS_FILE", "").strip()
     if not path:
+        for candidate in _default_config_candidates():
+            if os.path.exists(candidate):
+                path = candidate
+                break
+    if not path:
         return None
     try:
         with open(path, "r", encoding="utf-8") as handle:
             parsed = json.load(handle)
     except OSError as error:
-        logger.error("Cannot read LLM_PROVIDERS_FILE %r: %s", path, error)
+        logger.error("Cannot read LLM provider config %r: %s", path, error)
         return None
     if not isinstance(parsed, dict):
-        logger.error("LLM provider registry at %r is not a JSON object", path)
+        logger.error("LLM provider config at %r is not a JSON object", path)
         return None
     return parsed
 

@@ -488,6 +488,8 @@ const stopPolling = () => {
 // 追踪各平台的上一次轮次，用于检测变化并输出日志
 const prevTwitterRound = ref(0)
 const prevRedditRound = ref(0)
+// 轮次已完成但图谱记忆仍在同步时为 true，避免重复刷日志
+const finalizingLogged = ref(false)
 
 const fetchRunStatus = async () => {
   if (!props.simulationId) return
@@ -514,7 +516,7 @@ const fetchRunStatus = async () => {
       // 检测模拟是否已完成（通过 runner_status 或平台完成状态判断）
       const isCompleted = data.runner_status === 'completed' || data.runner_status === 'stopped'
       const isFailed = data.runner_status === 'failed'
-      
+
       // runner_status is authoritative because the backend only publishes a
       // terminal state after the Zep ingestion barrier has completed.
       if (isFailed) {
@@ -527,6 +529,16 @@ const fetchRunStatus = async () => {
         phase.value = 2
         stopPolling()
         emit('update-status', 'completed')
+      } else if (checkPlatformsCompleted(data)) {
+        // 所有轮次已完成，但 runner 仍在同步图谱记忆（ingestion barrier），
+        // COMPLETED 会在同步结束后发布。这不是卡死——明确告知用户。
+        if (!finalizingLogged.value) {
+          finalizingLogged.value = true
+          addLog(t('log.finalizingGraphSync'))
+        }
+      }
+      if (!checkPlatformsCompleted(data)) {
+        finalizingLogged.value = false
       }
     }
   } catch (err) {
@@ -690,14 +702,65 @@ watch(() => props.systemLogs?.length, () => {
 
 onMounted(() => {
   addLog(t('log.step3Init'))
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   if (props.simulationId) {
-    doStartSimulation()
+    // 恢复后端真实状态：刷新/重进页面绝不能强制重启正在运行或已完成的模拟
+    resumeSimulationState()
   }
 })
 
 onUnmounted(() => {
   stopPolling()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
+
+// 从后端恢复模拟状态（刷新、重开标签页、从Step 2返回时调用）
+const resumeSimulationState = async () => {
+  try {
+    const res = await getRunStatus(props.simulationId)
+    const runnerStatus = res?.data?.runner_status
+
+    if (runnerStatus === 'completed' || runnerStatus === 'stopped') {
+      runStatus.value = res.data
+      phase.value = 2
+      emit('update-status', 'completed')
+      addLog(t('log.simStateRecoveredCompleted'))
+      return
+    }
+    if (runnerStatus === 'failed') {
+      runStatus.value = res.data
+      phase.value = 2
+      emit('update-status', 'error')
+      addLog(t('log.simStateRecoveredFailed'))
+      return
+    }
+    if (runnerStatus && runnerStatus !== 'idle') {
+      // 模拟仍在运行（starting/running/paused/stopping）：接管监视，不重启
+      runStatus.value = res.data
+      phase.value = 1
+      emit('update-status', 'processing')
+      startStatusPolling()
+      startDetailPolling()
+      addLog(t('log.simStateRecoveredRunning'))
+      return
+    }
+    // 尚无运行记录：首次进入，按原逻辑自动开始
+    doStartSimulation()
+  } catch (err) {
+    console.warn('恢复模拟状态失败，按首次进入处理:', err)
+    doStartSimulation()
+  }
+}
+
+// 后台标签页的定时器会被浏览器节流（可能长达1分钟），回到前台立即补一次同步
+const handleVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') return
+  if (!props.simulationId) return
+  if (phase.value === 1 || statusTimer) {
+    fetchRunStatus()
+    fetchRunStatusDetail()
+  }
+}
 </script>
 
 <style scoped>

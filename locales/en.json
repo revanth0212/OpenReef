@@ -572,7 +572,11 @@
     "getReportInfoFailed": "Failed to get report info: {error}",
     "enterStep": "Entering Step {step}: {name}",
     "returnToStep": "Returning to Step {step}: {name}",
-    "customSimRounds": "Custom simulation rounds: {rounds} rounds"
+    "customSimRounds": "Custom simulation rounds: {rounds} rounds",
+    "simStateRecoveredRunning": "Detected a running simulation — resumed monitoring without restarting.",
+    "simStateRecoveredCompleted": "Detected a completed simulation — you can generate the report now.",
+    "simStateRecoveredFailed": "Detected a failed simulation from a previous session.",
+    "finalizingGraphSync": "All rounds finished — syncing graph memory before marking complete (can take a few minutes)..."
   },
   "report": {
     "taskStarted": "Report generation task started",

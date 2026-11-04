@@ -12,10 +12,17 @@ MiroFish: one provider from `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL_NAME`.
 
 ## Configuration
 
-Provide a registry in one of two ways:
+Put an `llm.config.json` next to your `.env` (same place you configure the
+LLM today) — the OpenReef run script mounts it into the container
+read-only at `/app/backend/llm.config.json`, and the backend picks it up
+automatically. In development, drop it at `backend/llm.config.json`.
 
-- `LLM_PROVIDERS_FILE` — path to a JSON file (easy to volume-mount in Docker).
-- `LLM_PROVIDERS_JSON` — the JSON inline as an env var.
+Priority order (first match wins):
+
+1. `LLM_PROVIDERS_JSON` — inline JSON env var (Docker-only escape hatch;
+   clunky, which is why it's last resort).
+2. `LLM_PROVIDERS_FILE` — explicit path to a JSON file anywhere.
+3. `llm.config.json` — the convention (auto-detected). **Recommended.**
 
 ```json
 {

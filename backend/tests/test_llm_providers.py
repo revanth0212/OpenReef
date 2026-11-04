@@ -169,3 +169,51 @@ def test_describe_configuration_inactive():
 def test_empty_providers_list_is_inactive(monkeypatch):
     use_json(monkeypatch, {"providers": [], "chains": {}})
     assert get_registry() is None
+
+
+# ── llm.config.json convention ──────────────────────────────────────
+
+def test_default_config_file_detected(monkeypatch, tmp_path):
+    config = tmp_path / "llm.config.json"
+    config.write_text(json.dumps(REGISTRY), encoding="utf-8")
+    monkeypatch.setattr(
+        llm_providers, "_default_config_candidates", lambda: [str(config)]
+    )
+    clear_registry_cache()
+    registry = get_registry()
+    assert registry is not None
+    assert "primary" in registry.providers
+
+
+def test_no_config_file_anywhere_is_legacy(monkeypatch, tmp_path):
+    monkeypatch.setattr(llm_providers, "_default_config_candidates", lambda: [])
+    clear_registry_cache()
+    assert get_registry() is None
+
+
+def test_explicit_file_env_beats_default_file(monkeypatch, tmp_path):
+    default_cfg = tmp_path / "llm.config.json"
+    default_cfg.write_text(json.dumps(REGISTRY), encoding="utf-8")
+    explicit = tmp_path / "custom.json"
+    explicit.write_text(json.dumps({
+        "providers": [{"name": "custom", "base_url": "u", "api_key": "k", "model": "m"}],
+        "chains": {"default": ["custom"]},
+    }), encoding="utf-8")
+    monkeypatch.setattr(
+        llm_providers, "_default_config_candidates", lambda: [str(default_cfg)]
+    )
+    monkeypatch.setenv("LLM_PROVIDERS_FILE", str(explicit))
+    clear_registry_cache()
+    chain = resolve_chain("default")
+    assert [e.provider for e in chain] == ["custom"]
+
+
+def test_inline_json_beats_file_env(monkeypatch, tmp_path):
+    config = tmp_path / "llm.config.json"
+    config.write_text(json.dumps(REGISTRY), encoding="utf-8")
+    monkeypatch.setenv("LLM_PROVIDERS_FILE", str(config))
+    use_json(monkeypatch, {
+        "providers": [{"name": "inline", "base_url": "u", "api_key": "k", "model": "m"}],
+        "chains": {"default": ["inline"]},
+    })
+    assert [e.provider for e in resolve_chain("default")] == ["inline"]
