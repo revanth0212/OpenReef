@@ -1,6 +1,9 @@
 services:
   mirofish:
-    image: ghcr.io/666ghj/mirofish:latest
+    # OpenReef builds from this source tree by default — the prebuilt
+    # upstream image (below) does NOT contain OpenReef features.
+    build: .
+    # image: ghcr.io/666ghj/mirofish:latest   # upstream, amd64-only, no OpenReef
     # 加速镜像（如拉取缓慢可替换上方地址）
     # image: ghcr.nju.edu.cn/666ghj/mirofish:latest
     container_name: mirofish

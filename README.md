@@ -24,6 +24,35 @@
 
 </div>
 
+> ## 🪸 OpenReef — the open enhancement fork
+>
+> This repo is **OpenReef**, an enhancement fork of MiroFish. Same engine,
+> same philosophy — plus features MiroFish doesn't have, all opt-in, all
+> backward-compatible. If you do nothing, it behaves like MiroFish.
+>
+> - **🧠 ReefMemory** — native graph memory (Graphiti + embedded Kuzu). No Zep
+>   account or key required; your memory lives in `backend/uploads/reef-memory/`.
+>   `MEMORY_BACKEND=zep` keeps legacy behavior. → [docs](docs/reef-memory.md)
+> - **🔀 Multi-LLM** — per-stage model selection + automatic failover chains,
+>   configured via a clean `llm.config.json` file. → [docs](docs/multi-llm.md)
+> - **🌐 Agent web search** — Tavily search tool for simulation agents and the
+>   report agent (`TAVILY_API_KEY` + per-simulation toggle). → [docs](docs/web-search.md)
+> - **🌍 End-to-end English** — the UI already speaks your browser's language;
+>   reports are generated natively in English too.
+> - **🛡️ Session-resilient UI** — refresh or close the tab mid-simulation; work
+>   continues server-side and the UI re-syncs on return.
+>
+> **Quick start (Docker):**
+>
+> ```bash
+> git clone https://github.com/revanth0212/OpenReef.git && cd OpenReef
+> cp .env.example .env        # fill LLM_BASE_URL / LLM_API_KEY / LLM_MODEL_NAME
+> docker compose up -d --build
+> ```
+>
+> Open http://localhost:3000. Full walkthrough (incl. macOS Apple containers
+> and optional features): **[docs/getting-started.md](docs/getting-started.md)**.
+
 ## ⚡ Overview
 
 **MiroFish** is a next-generation AI prediction engine powered by multi-agent technology. By extracting seed information from the real world (such as breaking news, policy drafts, or financial signals), it automatically constructs a high-fidelity parallel digital world. Within this space, thousands of intelligent agents with independent personalities, long-term memory, and behavioral logic freely interact and undergo social evolution. You can inject variables dynamically from a "God's-eye view" to precisely deduce future trajectories — **rehearse the future in a digital sandbox, and win decisions after countless simulations**.
