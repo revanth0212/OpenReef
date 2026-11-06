@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from ..openreef.localmodels import maybe_adapt_for_client
+
 
 def is_gpt5_family(model: Optional[str]) -> bool:
     """Return True when model belongs to GPT-5 family aliases/snapshots."""
@@ -53,6 +55,10 @@ def create_chat_completion(
             kwargs["max_completion_tokens"] = max_tokens
         else:
             kwargs["max_tokens"] = max_tokens
+
+    # OpenReef adapter (no-op unless the endpoint is a local model server):
+    # root-object JSON schema, token cap, repetition penalty.
+    kwargs = maybe_adapt_for_client(client, kwargs)
 
     return client.chat.completions.create(**kwargs)
 

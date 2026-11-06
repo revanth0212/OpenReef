@@ -41,6 +41,11 @@
 >   reports are generated natively in English too.
 > - **🛡️ Session-resilient UI** — refresh or close the tab mid-simulation; work
 >   continues server-side and the UI re-syncs on return.
+> - **🖥️ Local models, zero fuss** — point `LLM_BASE_URL` at oMLX/llama.cpp/LM
+>   Studio and OpenReef auto-adapts requests (root-object JSON, token caps,
+>   repetition penalty). No shim, nothing to enable. → [docs](docs/local-models.md)
+> - **🍎 Apple containers** — same image as Docker, plus a one-command runner:
+>   `./scripts/run-apple-container.sh`. → [docs](docs/getting-started.md)
 >
 > **Quick start (Docker):**
 >
@@ -50,8 +55,8 @@
 > docker compose up -d --build
 > ```
 >
-> Open http://localhost:3000. Full walkthrough (incl. macOS Apple containers
-> and optional features): **[docs/getting-started.md](docs/getting-started.md)**.
+> Open http://localhost:3000. Full walkthrough (local models, Apple containers,
+> optional features): **[docs/getting-started.md](docs/getting-started.md)**.
 
 ## ⚡ Overview
 

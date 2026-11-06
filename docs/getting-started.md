@@ -31,21 +31,27 @@ stops; deleting `./backend/uploads` resets everything.
 
 ## Path B — Apple containers (macOS 26+, no Docker daemon)
 
+Same image, one command (builds on first run):
+
 ```bash
 git clone https://github.com/revanth0212/OpenReef.git
 cd OpenReef
 cp .env.example .env        # fill in your LLM config
-container build -t openreef:local .
-
-container run -d --name openreef --init \
-  --env-file .env \
-  -p 127.0.0.1:3000:3000 -p 127.0.0.1:5001:5001 \
-  -v "$PWD/backend/uploads:/app/backend/uploads" \
-  openreef:local
+./scripts/run-apple-container.sh
 ```
 
-If you use an `llm.config.json` (multi-LLM), add a read-only mount:
-`-v "$PWD/llm.config.json:/app/backend/llm.config.json:ro"`.
+`stop` / `logs` / `wipe` work as subcommands; overrides documented in the
+script header. Requires the [container CLI](https://github.com/apple/container)
+(`container system start` once).
+
+## Local models (oMLX, llama.cpp, LM Studio…)
+
+Point `LLM_BASE_URL` at your server (`http://host.docker.internal:8000/v1`
+or `http://host.container.internal:8000/v1`) — OpenReef **auto-detects
+local endpoints** and adapts requests in-process (root-object JSON schema,
+token cap, repetition penalty). No shim, nothing to enable. See
+[docs/local-models.md](docs/local-models.md) for requirements, tested
+models, and limitations.
 
 ## First run & first simulation
 
