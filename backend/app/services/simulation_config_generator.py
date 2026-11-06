@@ -278,7 +278,7 @@ class SimulationConfigGenerator:
             entities: 过滤后的实体列表
             enable_twitter: 是否启用Twitter
             enable_reddit: 是否启用Reddit
-            web_search_enabled: OpenReef 是否为Agent启用联网搜索（需 TAVILY_API_KEY）
+            web_search_enabled: OpenReef — enable agent web search (requires TAVILY_API_KEY)
             progress_callback: 进度回调函数(current_step, total_steps, message)
 
         Returns:

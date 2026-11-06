@@ -412,7 +412,7 @@ def prepare_simulation():
             "entity_types": ["Student", "PublicFigure"],  // 可选，指定实体类型
             "use_llm_for_profiles": true,                 // 可选，是否用LLM生成人设
             "parallel_profile_count": 5,                  // 可选，并行生成人设数量，默认5
-            "web_search_enabled": false,                  // 可选(OpenReef)，Agent联网搜索，需TAVILY_API_KEY，默认false
+            "web_search_enabled": false,                  // optional (OpenReef): agent web search, needs TAVILY_API_KEY, default false
             "force_regenerate": false                     // 可选，强制重新生成，默认false
         }
     

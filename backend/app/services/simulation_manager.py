@@ -270,7 +270,7 @@ class SimulationManager:
             use_llm_for_profiles: 是否使用LLM生成详细人设
             progress_callback: 进度回调函数 (stage, progress, message)
             parallel_profile_count: 并行生成人设的数量，默认3
-            web_search_enabled: OpenReef 是否为Agent启用联网搜索（需 TAVILY_API_KEY，默认关闭）
+            web_search_enabled: OpenReef — enable agent web search (requires TAVILY_API_KEY, default off)
             
         Returns:
             SimulationState
