@@ -57,6 +57,7 @@
 >
 > Open http://localhost:3000. Full walkthrough (local models, Apple containers,
 > optional features): **[docs/getting-started.md](docs/getting-started.md)**.
+> Fork contract, rebase care list, and policies: **[OPENREEF.md](OPENREEF.md)**.
 
 ## ⚡ Overview
 
