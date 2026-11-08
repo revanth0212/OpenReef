@@ -718,8 +718,11 @@ import {
   getSimulationConfigRealtime
 } from '../api/simulation'
 import { getLLMProviders, testLLMProvider } from '../api/llm'
+import { getSimSettings, updateSimSettings } from '../store/simSettings'
 
 const { t } = useI18n()
+
+const simSettings = getSimSettings()
 
 // OpenReef: multi-LLM provider overview + tester
 const providersLoaded = ref(false)
@@ -795,8 +798,6 @@ if (simSettings.maxRounds) {
 }
 // OpenReef: agent web search — chosen in Step 1 (advanced section); the
 // toggle here stays two-way bound with the shared settings store.
-import { getSimSettings, updateSimSettings } from '../store/simSettings'
-const simSettings = getSimSettings()
 const webSearchEnabled = ref(simSettings.webSearch)
 
 // Watch stage to update phase
