@@ -90,6 +90,69 @@
         </div>
       </div>
 
+      <!-- OpenReef: report customization (optional; default = upstream behavior) -->
+      <div class="report-options" v-if="phase === 2 && !isGeneratingReport">
+        <button class="report-options-toggle" @click="reportOptionsOpen = !reportOptionsOpen">
+          {{ $t('reportOpts.toggle') }}
+          <span class="caret">{{ reportOptionsOpen ? '▲' : '▼' }}</span>
+        </button>
+        <div v-if="reportOptionsOpen" class="report-options-panel">
+          <div class="ro-row">
+            <label>{{ $t('reportOpts.preset') }}</label>
+            <select v-model="reportOpts.preset" @change="onPresetChange" class="ro-input">
+              <option value="standard">{{ $t('reportOpts.presetStandard') }}</option>
+              <option value="executive">{{ $t('reportOpts.presetExecutive') }}</option>
+              <option value="deep_dive">{{ $t('reportOpts.presetDeepDive') }}</option>
+            </select>
+          </div>
+          <div class="ro-row">
+            <label>{{ $t('reportOpts.language') }}</label>
+            <select v-model="reportOpts.language" class="ro-input">
+              <option value="">{{ $t('reportOpts.followUI') }}</option>
+              <option value="en">English</option>
+              <option value="zh">中文</option>
+              <option value="es">Español</option>
+              <option value="fr">Français</option>
+              <option value="de">Deutsch</option>
+              <option value="pt">Português</option>
+              <option value="ru">Русский</option>
+            </select>
+          </div>
+          <div class="ro-row">
+            <label>{{ $t('reportOpts.length') }}</label>
+            <select v-model="reportOpts.length" class="ro-input">
+              <option value="">{{ $t('reportOpts.presetDefault') }}</option>
+              <option value="short">{{ $t('reportOpts.lengthShort') }}</option>
+              <option value="standard">{{ $t('reportOpts.lengthStandard') }}</option>
+              <option value="long">{{ $t('reportOpts.lengthLong') }}</option>
+            </select>
+          </div>
+          <div class="ro-row">
+            <label>{{ $t('reportOpts.tone') }}</label>
+            <select v-model="reportOpts.tone" class="ro-input">
+              <option value="">{{ $t('reportOpts.presetDefault') }}</option>
+              <option value="professional">{{ $t('reportOpts.toneProfessional') }}</option>
+              <option value="analytical">{{ $t('reportOpts.toneAnalytical') }}</option>
+              <option value="journalistic">{{ $t('reportOpts.toneJournalistic') }}</option>
+              <option value="vivid">{{ $t('reportOpts.toneVivid') }}</option>
+            </select>
+          </div>
+          <div class="ro-row">
+            <label>{{ $t('reportOpts.complexity') }}</label>
+            <select v-model="reportOpts.complexity" class="ro-input">
+              <option value="">{{ $t('reportOpts.presetDefault') }}</option>
+              <option value="general">{{ $t('reportOpts.complexityGeneral') }}</option>
+              <option value="informed">{{ $t('reportOpts.complexityInformed') }}</option>
+              <option value="expert">{{ $t('reportOpts.complexityExpert') }}</option>
+            </select>
+          </div>
+          <div class="ro-row">
+            <label>{{ $t('reportOpts.audience') }}</label>
+            <input v-model="reportOpts.audience" class="ro-input" :placeholder="$t('reportOpts.audiencePlaceholder')" />
+          </div>
+        </div>
+      </div>
+
       <div class="action-controls">
         <button 
           class="action-btn primary"
@@ -317,6 +380,35 @@ const router = useRouter()
 
 // State
 const isGeneratingReport = ref(false)
+
+// OpenReef: report customization (all optional; empty = upstream behavior)
+const reportOptionsOpen = ref(false)
+const reportOpts = ref({
+  preset: 'standard',
+  language: '',
+  length: '',
+  tone: '',
+  complexity: '',
+  audience: ''
+})
+
+const onPresetChange = () => {
+  // preset supplies style values; user can override afterwards
+  reportOpts.value.length = ''
+  reportOpts.value.tone = ''
+  reportOpts.value.complexity = ''
+  reportOpts.value.audience = ''
+}
+
+const buildReportOptions = () => {
+  const o = { preset: reportOpts.value.preset }
+  if (reportOpts.value.language) o.language = reportOpts.value.language
+  if (reportOpts.value.length) o.length = reportOpts.value.length
+  if (reportOpts.value.tone) o.tone = reportOpts.value.tone
+  if (reportOpts.value.complexity) o.complexity = reportOpts.value.complexity
+  if (reportOpts.value.audience.trim()) o.audience = reportOpts.value.audience.trim()
+  return o
+}
 const phase = ref(0) // 0: 未开始, 1: 运行中, 2: 已完成
 const isStarting = ref(false)
 const isStopping = ref(false)
@@ -671,7 +763,8 @@ const handleNextStep = async () => {
   try {
     const res = await generateReport({
       simulation_id: props.simulationId,
-      force_regenerate: true
+      force_regenerate: true,
+      report_options: buildReportOptions()
     })
     
     if (res.success && res.data) {
@@ -1327,5 +1420,67 @@ const handleVisibilityChange = () => {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   margin-right: 6px;
+}
+
+/* ── OpenReef: report customization panel ── */
+.report-options {
+  margin: 10px 0 12px;
+}
+
+.report-options-toggle {
+  background: none;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  cursor: pointer;
+  padding: 4px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.report-options-toggle .caret {
+  font-size: 10px;
+  color: #999;
+}
+
+.report-options-panel {
+  margin-top: 8px;
+  border: 1px solid #E5E5E5;
+  border-radius: 8px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  background: #FAFAFA;
+}
+
+.ro-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ro-row label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+}
+
+.ro-input {
+  padding: 7px 9px;
+  font-size: 12px;
+  border: 1px solid #DDD;
+  border-radius: 6px;
+  background: #FFF;
+  font-family: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
+}
+
+.ro-input:focus {
+  outline: none;
+  border-color: #000;
 }
 </style>

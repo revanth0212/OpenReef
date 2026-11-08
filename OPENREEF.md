@@ -68,7 +68,7 @@ who ignores every OpenReef extra gets behavior **identical** to MiroFish.
 | — | **Local-model adapter** — auto root-JSON schema, token cap, rep penalty (replaces the old shim) | done | `app/openreef/localmodels.py` | auto via endpoint heuristic; `OPENREEF_LOCAL_LLM` override |
 | — | **Apple-container runner** | done | `scripts/run-apple-container.sh` | manual |
 | — | **Real-component verifier** — pre-flight gate for the memory backend (no mocks) | done | `backend/scripts/verify_reef_memory.py` | manual; must pass before container tests |
-| 4 | Report customization (length/tone/complexity presets) | pending | — | — |
+| 4 | **Report customization** — presets, tone/audience/complexity/length, per-report language override | done | `app/openreef/report_options.py`, `report_agent.py`, `api/report.py`, Step 3 options panel | per-report, optional (default = upstream) |
 | 6 | ReefLive (watch agents work) | pending | — | — |
 | 5 | ReefReport (HTML/PDF/infographics) | pending | — | — |
 | 7.x | FalkorDB driver, typed-ontology extraction, Zep→Graphiti migration | deferred | — | — |

@@ -690,5 +690,30 @@
     "testerFillAll": "Fill in base URL, API key and model first.",
     "testOk": "Connected in {ms} ms",
     "enabledCol": "Enabled"
+  },
+  "reportOpts": {
+    "toggle": "Report options (optional)",
+    "preset": "Preset",
+    "presetStandard": "Standard",
+    "presetExecutive": "Executive Brief",
+    "presetDeepDive": "Deep Dive",
+    "language": "Report language",
+    "followUI": "Follow interface language",
+    "length": "Length",
+    "presetDefault": "Preset default",
+    "lengthShort": "Short",
+    "lengthStandard": "Standard",
+    "lengthLong": "Long",
+    "tone": "Tone",
+    "toneProfessional": "Professional",
+    "toneAnalytical": "Analytical",
+    "toneJournalistic": "Journalistic",
+    "toneVivid": "Vivid / narrative",
+    "complexity": "Complexity",
+    "complexityGeneral": "General audience",
+    "complexityInformed": "Engaged readers",
+    "complexityExpert": "Domain experts",
+    "audience": "Audience",
+    "audiencePlaceholder": "e.g. central-bank researchers (optional)"
   }
 }

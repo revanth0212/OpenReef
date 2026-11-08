@@ -690,5 +690,30 @@
     "testerFillAll": "请先填写 Base URL、API Key 和模型名称。",
     "testOk": "连接成功，耗时 {ms} 毫秒",
     "enabledCol": "已启用"
+  },
+  "reportOpts": {
+    "toggle": "报告选项（可选）",
+    "preset": "预设",
+    "presetStandard": "标准",
+    "presetExecutive": "执行摘要",
+    "presetDeepDive": "深度分析",
+    "language": "报告语言",
+    "followUI": "跟随界面语言",
+    "length": "篇幅",
+    "presetDefault": "跟随预设",
+    "lengthShort": "简短",
+    "lengthStandard": "标准",
+    "lengthLong": "长篇",
+    "tone": "语气",
+    "toneProfessional": "专业克制",
+    "toneAnalytical": "分析性",
+    "toneJournalistic": "新闻综述",
+    "toneVivid": "生动叙事",
+    "complexity": "复杂度",
+    "complexityGeneral": "普通读者",
+    "complexityInformed": "关注该领域的读者",
+    "complexityExpert": "领域专家",
+    "audience": "目标读者",
+    "audiencePlaceholder": "例如：央行研究员（可选）"
   }
 }

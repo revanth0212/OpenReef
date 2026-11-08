@@ -40,7 +40,16 @@ def generate_report():
     请求（JSON）：
         {
             "simulation_id": "sim_xxxx",    // 必填，模拟ID
-            "force_regenerate": false        // 可选，强制重新生成
+            "force_regenerate": false,       // 可选，强制重新生成
+            "report_options": {              // 可选(OpenReef)，缺省=与上游一致
+                "preset": "standard",        //   standard|executive|deep_dive
+                "language": "en",            //   可选，zh/en/es/fr/pt/ru/de；缺省跟随界面语言
+                "tone": "analytical",        //   可选，professional/analytical/journalistic/vivid 或自由文本
+                "audience": "domain experts",//   可选，自由文本
+                "length": "standard",        //   short|standard|long
+                "max_sections": 5,           //   可选，2-5
+                "complexity": "expert"       //   可选，general|informed|expert
+            }
         }
     
     返回：
@@ -69,6 +78,18 @@ def generate_report():
             return jsonify({
                 "success": False,
                 "error": "force_regenerate must be a JSON boolean",
+            }), 400
+
+        # OpenReef: optional report customization (language/tone/audience/
+        # length/complexity). Absent = upstream behavior exactly.
+        from ..openreef.report_options import ReportOptions
+        raw_options = data.get('report_options')
+        try:
+            options = ReportOptions.from_dict(raw_options)
+        except ValueError as error:
+            return jsonify({
+                "success": False,
+                "error": f"invalid report_options: {error}",
             }), 400
         
         # 获取模拟信息
@@ -255,7 +276,8 @@ def generate_report():
                     agent = ReportAgent(
                         graph_id=graph_id,
                         simulation_id=simulation_id,
-                        simulation_requirement=simulation_requirement
+                        simulation_requirement=simulation_requirement,
+                        report_options=options.to_dict(),
                     )
 
                     def progress_callback(stage, progress, message):
@@ -269,6 +291,7 @@ def generate_report():
                         progress_callback=progress_callback,
                         report_id=report_id
                     )
+                    report.options = agent.options.to_dict()
                     ReportManager.save_report(report)
 
                     if report.status == ReportStatus.COMPLETED:
@@ -660,7 +683,7 @@ def chat_with_report_agent():
         
         simulation_requirement = project.simulation_requirement or ""
         
-        # 创建Agent并进行对话
+        # 创建Agent并进行对话（对话沿用界面语言与既有报告，不携带生成定制）
         agent = ReportAgent(
             graph_id=graph_id,
             simulation_id=simulation_id,

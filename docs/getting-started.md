@@ -88,3 +88,12 @@ models, and limitations.
   reason; if you used `OPENREEF_SKIP_BUILD=1`, rebuild once without it.
 - Everything else: see [testing.md](testing.md) for the full verification
   matrix and log locations.
+
+## Report customization (optional)
+
+In Step 3, after the simulation completes, expand **Report options** above
+the Generate Report button: presets (Standard / Executive Brief / Deep
+Dive), report language (defaults to the UI language), length, tone,
+complexity, and a free-text audience. Choices persist with the report
+(`options` in the report JSON). Everything is optional — with no choices,
+report generation is byte-for-byte the upstream behavior.

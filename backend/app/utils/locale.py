@@ -67,3 +67,9 @@ def get_language_instruction() -> str:
     locale = get_locale()
     lang_config = _languages.get(locale, _languages.get('zh', {}))
     return lang_config.get('llmInstruction', '请使用中文回答。')
+
+
+def get_language_instruction_for(locale_code: str) -> str:
+    """LLM language instruction for an explicit locale (report override)."""
+    lang_config = _languages.get(locale_code, _languages.get('zh', {}))
+    return lang_config.get('llmInstruction', '请使用中文回答。')

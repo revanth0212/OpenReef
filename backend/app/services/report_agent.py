@@ -21,7 +21,7 @@ from enum import Enum
 from ..config import Config
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
-from ..utils.locale import get_language_instruction, get_locale, t
+from ..utils.locale import get_language_instruction, get_language_instruction_for, get_locale, t
 from ..utils.web_search import is_web_search_configured, web_search
 from .zep_tools import (
     ZepToolsService, 
@@ -452,7 +452,8 @@ class Report:
     created_at: str = ""
     completed_at: str = ""
     error: Optional[str] = None
-    
+    options: Dict[str, Any] = field(default_factory=dict)  # OpenReef customization used
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "report_id": self.report_id,
@@ -464,7 +465,8 @@ class Report:
             "markdown_content": self.markdown_content,
             "created_at": self.created_at,
             "completed_at": self.completed_at,
-            "error": self.error
+            "error": self.error,
+            "options": self.options,
         }
 
 
@@ -873,14 +875,17 @@ CHAT_OBSERVATION_SUFFIX = "\n\n请简洁回答问题。"
 # Chinese originals.
 # ═══════════════════════════════════════════════════════════════
 
-def _pick_template(zh_template: str, en_template: str) -> str:
+def _pick_template(zh_template: str, en_template: str, locale: Optional[str] = None) -> str:
     """Pick the prompt template matching the active locale.
 
     Chinese stays the default; English templates are used only when the
     active locale is 'en'. Other locales keep today's behavior (Chinese
     scaffolding plus their get_language_instruction() output).
+    An explicit `locale` (report language override) wins over the ambient
+    locale.
     """
-    return en_template if get_locale() == 'en' else zh_template
+    effective = locale if locale is not None else get_locale()
+    return en_template if effective == 'en' else zh_template
 
 
 TOOL_DESC_INSIGHT_FORGE_EN = """\
@@ -1330,26 +1335,33 @@ class ReportAgent:
     MAX_TOOL_CALLS_PER_CHAT = 2
     
     def __init__(
-        self, 
+        self,
         graph_id: str,
         simulation_id: str,
         simulation_requirement: str,
         llm_client: Optional[LLMClient] = None,
-        zep_tools: Optional[ZepToolsService] = None
+        zep_tools: Optional[ZepToolsService] = None,
+        report_options: Optional[Dict[str, Any]] = None,
     ):
         """
         初始化Report Agent
-        
+
         Args:
             graph_id: 图谱ID
             simulation_id: 模拟ID
             simulation_requirement: 模拟需求描述
             llm_client: LLM客户端（可选）
             zep_tools: Zep工具服务（可选）
+            report_options: OpenReef 报告定制（语言/语气/读者/篇幅/复杂度），
+                            None = 与上游行为完全一致
         """
+        from ..openreef.report_options import ReportOptions
+
         self.graph_id = graph_id
         self.simulation_id = simulation_id
         self.simulation_requirement = simulation_requirement
+        self.options = ReportOptions.from_dict(report_options)
+        self._report_locale = self.options.language
         
         self.llm = llm_client or LLMClient(stage="report")
         self.zep_tools = zep_tools or ZepToolsService()
@@ -1367,6 +1379,24 @@ class ReportAgent:
         
         logger.info(t('report.agentInitDone', graphId=graph_id, simulationId=simulation_id))
     
+    def _pick(self, zh_template: str, en_template: str) -> str:
+        """Template pick honoring the per-report language override."""
+        return _pick_template(zh_template, en_template, locale=self._report_locale)
+
+    def _lang_instruction(self) -> str:
+        """Language instruction honoring the per-report language override."""
+        if self._report_locale:
+            return get_language_instruction_for(self._report_locale)
+        return get_language_instruction()
+
+    def _customization_suffix(self, for_plan: bool) -> str:
+        """Style directives for outline/section prompts ('' when default)."""
+        block = self.options.customization_block(
+            english=(self._report_locale or get_locale()) == "en",
+            for_plan=for_plan,
+        )
+        return f"\n\n{block}" if block else ""
+
     def _web_search_enabled(self) -> bool:
         """OpenReef: the web_search tool exists only when this simulation
         enabled it in config AND TAVILY_API_KEY is configured."""
@@ -1428,7 +1458,7 @@ class ReportAgent:
         if self._web_search_enabled():
             tools["web_search"] = {
                 "name": "web_search",
-                "description": _pick_template(TOOL_DESC_WEB_SEARCH, TOOL_DESC_WEB_SEARCH_EN),
+                "description": self._pick(TOOL_DESC_WEB_SEARCH, TOOL_DESC_WEB_SEARCH_EN),
                 "parameters": {
                     "query": "要搜索的网络关键词或问题",
                     "max_results": "返回结果数量（可选，默认5，最大10）"
@@ -1696,8 +1726,8 @@ class ReportAgent:
         if progress_callback:
             progress_callback("planning", 30, t('progress.generatingOutline'))
         
-        system_prompt = f"{_pick_template(PLAN_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT_EN)}\n\n{get_language_instruction()}"
-        user_prompt = _pick_template(PLAN_USER_PROMPT_TEMPLATE, PLAN_USER_PROMPT_TEMPLATE_EN).format(
+        system_prompt = f"{self._pick(PLAN_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT_EN)}\n\n{self._lang_instruction()}{self._customization_suffix(for_plan=True)}"
+        user_prompt = self._pick(PLAN_USER_PROMPT_TEMPLATE, PLAN_USER_PROMPT_TEMPLATE_EN).format(
             simulation_requirement=self.simulation_requirement,
             total_nodes=context.get('graph_statistics', {}).get('total_nodes', 0),
             total_edges=context.get('graph_statistics', {}).get('total_edges', 0),
@@ -1795,17 +1825,17 @@ class ReportAgent:
         if self.report_logger:
             self.report_logger.log_section_start(section.title, section_index)
         
-        system_prompt = _pick_template(SECTION_SYSTEM_PROMPT_TEMPLATE, SECTION_SYSTEM_PROMPT_TEMPLATE_EN).format(
+        system_prompt = self._pick(SECTION_SYSTEM_PROMPT_TEMPLATE, SECTION_SYSTEM_PROMPT_TEMPLATE_EN).format(
             report_title=outline.title,
             report_summary=outline.summary,
             simulation_requirement=self.simulation_requirement,
             section_title=section.title,
             tools_description=self._get_tools_description(),
         )
-        system_prompt = f"{system_prompt}\n\n{get_language_instruction()}"
+        system_prompt = f"{system_prompt}\n\n{self._lang_instruction()}{self._customization_suffix(for_plan=False)}"
         # OpenReef: surface the optional web-search tool to the section writer
         if "web_search" in self.tools:
-            system_prompt = f"{system_prompt}{_pick_template(WEB_SEARCH_ADVICE_ZH, WEB_SEARCH_ADVICE_EN)}"
+            system_prompt = f"{system_prompt}{self._pick(WEB_SEARCH_ADVICE_ZH, WEB_SEARCH_ADVICE_EN)}"
 
         # 构建用户prompt - 每个已完成章节各传入最大4000字
         if previous_sections:
@@ -1816,9 +1846,9 @@ class ReportAgent:
                 previous_parts.append(truncated)
             previous_content = "\n\n---\n\n".join(previous_parts)
         else:
-            previous_content = _pick_template("（这是第一个章节）", FIRST_SECTION_PLACEHOLDER_EN)
+            previous_content = self._pick("（这是第一个章节）", FIRST_SECTION_PLACEHOLDER_EN)
 
-        user_prompt = _pick_template(SECTION_USER_PROMPT_TEMPLATE, SECTION_USER_PROMPT_TEMPLATE_EN).format(
+        user_prompt = self._pick(SECTION_USER_PROMPT_TEMPLATE, SECTION_USER_PROMPT_TEMPLATE_EN).format(
             previous_content=previous_content,
             section_title=section.title,
         )
@@ -1925,13 +1955,13 @@ class ReportAgent:
                 if tool_calls_count < min_tool_calls:
                     messages.append({"role": "assistant", "content": cleaned_response})
                     unused_tools = all_tools - used_tools
-                    unused_hint = _pick_template(
+                    unused_hint = self._pick(
                         "（这些工具还未使用，推荐用一下他们: {tools}）",
                         UNUSED_TOOLS_HINT_FMT_EN,
                     ).format(tools=', '.join(unused_tools)) if unused_tools else ""
                     messages.append({
                         "role": "user",
-                        "content": _pick_template(REACT_INSUFFICIENT_TOOLS_MSG, REACT_INSUFFICIENT_TOOLS_MSG_EN).format(
+                        "content": self._pick(REACT_INSUFFICIENT_TOOLS_MSG, REACT_INSUFFICIENT_TOOLS_MSG_EN).format(
                             tool_calls_count=tool_calls_count,
                             min_tool_calls=min_tool_calls,
                             unused_hint=unused_hint,
@@ -1960,7 +1990,7 @@ class ReportAgent:
                     messages.append({"role": "assistant", "content": cleaned_response})
                     messages.append({
                         "role": "user",
-                        "content": _pick_template(REACT_TOOL_LIMIT_MSG, REACT_TOOL_LIMIT_MSG_EN).format(
+                        "content": self._pick(REACT_TOOL_LIMIT_MSG, REACT_TOOL_LIMIT_MSG_EN).format(
                             tool_calls_count=tool_calls_count,
                             max_tool_calls=self.MAX_TOOL_CALLS_PER_SECTION,
                         ),
@@ -2003,13 +2033,13 @@ class ReportAgent:
                 unused_tools = all_tools - used_tools
                 unused_hint = ""
                 if unused_tools and tool_calls_count < self.MAX_TOOL_CALLS_PER_SECTION:
-                    unused_hint = _pick_template(REACT_UNUSED_TOOLS_HINT, REACT_UNUSED_TOOLS_HINT_EN).format(unused_list="、".join(unused_tools))
+                    unused_hint = self._pick(REACT_UNUSED_TOOLS_HINT, REACT_UNUSED_TOOLS_HINT_EN).format(unused_list="、".join(unused_tools))
 
                 cleaned_response = ReportAgent._strip_fake_tool_results(response)
                 messages.append({"role": "assistant", "content": cleaned_response})
                 messages.append({
                     "role": "user",
-                    "content": _pick_template(REACT_OBSERVATION_TEMPLATE, REACT_OBSERVATION_TEMPLATE_EN).format(
+                    "content": self._pick(REACT_OBSERVATION_TEMPLATE, REACT_OBSERVATION_TEMPLATE_EN).format(
                         tool_name=call["name"],
                         result=result,
                         tool_calls_count=tool_calls_count,
@@ -2027,14 +2057,14 @@ class ReportAgent:
             if tool_calls_count < min_tool_calls:
                 # 工具调用次数不足，推荐未用过的工具
                 unused_tools = all_tools - used_tools
-                unused_hint = _pick_template(
+                unused_hint = self._pick(
                     "（这些工具还未使用，推荐用一下他们: {tools}）",
                     UNUSED_TOOLS_HINT_FMT_EN,
                 ).format(tools=', '.join(unused_tools)) if unused_tools else ""
 
                 messages.append({
                     "role": "user",
-                    "content": _pick_template(REACT_INSUFFICIENT_TOOLS_MSG_ALT, REACT_INSUFFICIENT_TOOLS_MSG_ALT_EN).format(
+                    "content": self._pick(REACT_INSUFFICIENT_TOOLS_MSG_ALT, REACT_INSUFFICIENT_TOOLS_MSG_ALT_EN).format(
                         tool_calls_count=tool_calls_count,
                         min_tool_calls=min_tool_calls,
                         unused_hint=unused_hint,
@@ -2058,7 +2088,7 @@ class ReportAgent:
         
         # 达到最大迭代次数，强制生成内容
         logger.warning(t('report.sectionMaxIter', title=section.title))
-        messages.append({"role": "user", "content": _pick_template(REACT_FORCE_FINAL_MSG, REACT_FORCE_FINAL_MSG_EN)})
+        messages.append({"role": "user", "content": self._pick(REACT_FORCE_FINAL_MSG, REACT_FORCE_FINAL_MSG_EN)})
         
         response = self.llm.chat(
             messages=messages,
@@ -2150,6 +2180,7 @@ class ReportAgent:
                 report_id, "pending", 0, t('progress.initReport'),
                 completed_sections=[]
             )
+            report.options = self.options.to_dict()
             ReportManager.save_report(report)
             
             # 阶段1: 规划大纲
@@ -2180,6 +2211,7 @@ class ReportAgent:
                 report_id, "planning", 15, t('progress.outlineDone', count=len(outline.sections)),
                 completed_sections=[]
             )
+            report.options = self.options.to_dict()
             ReportManager.save_report(report)
             
             logger.info(t('report.outlineSavedToFile', reportId=report_id))
@@ -2276,6 +2308,7 @@ class ReportAgent:
                 )
             
             # 保存最终报告
+            report.options = self.options.to_dict()
             ReportManager.save_report(report)
             ReportManager.update_progress(
                 report_id, "completed", 100, t('progress.reportComplete'),
@@ -2305,6 +2338,7 @@ class ReportAgent:
             
             # 保存失败状态
             try:
+                report.options = self.options.to_dict()
                 ReportManager.save_report(report)
                 ReportManager.update_progress(
                     report_id, "failed", -1, t('progress.reportFailed', error=str(e)),
@@ -2353,16 +2387,16 @@ class ReportAgent:
                 # 限制报告长度，避免上下文过长
                 report_content = report.markdown_content[:15000]
                 if len(report.markdown_content) > 15000:
-                    report_content += _pick_template("\n\n... [报告内容已截断] ...", REPORT_TRUNCATED_SUFFIX_EN)
+                    report_content += self._pick("\n\n... [报告内容已截断] ...", REPORT_TRUNCATED_SUFFIX_EN)
         except Exception as e:
             logger.warning(t('report.fetchReportFailed', error=e))
 
-        system_prompt = _pick_template(CHAT_SYSTEM_PROMPT_TEMPLATE, CHAT_SYSTEM_PROMPT_TEMPLATE_EN).format(
+        system_prompt = self._pick(CHAT_SYSTEM_PROMPT_TEMPLATE, CHAT_SYSTEM_PROMPT_TEMPLATE_EN).format(
             simulation_requirement=self.simulation_requirement,
-            report_content=report_content if report_content else _pick_template("（暂无报告）", NO_REPORT_PLACEHOLDER_EN),
+            report_content=report_content if report_content else self._pick("（暂无报告）", NO_REPORT_PLACEHOLDER_EN),
             tools_description=self._get_tools_description(),
         )
-        system_prompt = f"{system_prompt}\n\n{get_language_instruction()}"
+        system_prompt = f"{system_prompt}\n\n{self._lang_instruction()}"
 
         # 构建消息
         messages = [{"role": "system", "content": system_prompt}]
@@ -2420,7 +2454,7 @@ class ReportAgent:
             observation = "\n".join([f"[{r['tool']}结果]\n{r['result']}" for r in tool_results])
             messages.append({
                 "role": "user",
-                "content": observation + _pick_template(CHAT_OBSERVATION_SUFFIX, CHAT_OBSERVATION_SUFFIX_EN)
+                "content": observation + self._pick(CHAT_OBSERVATION_SUFFIX, CHAT_OBSERVATION_SUFFIX_EN)
             })
         
         # 达到最大迭代，获取最终响应
