@@ -103,6 +103,10 @@ def main():
         "Alice published a widely discussed paper on solid-state batteries.",
         "Acme Labs is a research organization founded in 2019. "
         "It partners with Northfield University on energy storage.",
+        "Bob, a policy analyst, advises the city council on energy regulation. "
+        "He previously worked at Northfield University.",
+        "The 2024 grid modernization bill funds battery storage projects. "
+        "Acme Labs testified in support of the bill.",
     ]
     submission = service.add_text_batches(
         graph_id,

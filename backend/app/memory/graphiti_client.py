@@ -457,6 +457,8 @@ class GraphitiCompatClient:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop_thread: Optional[threading.Thread] = None
         self._graphiti_impl = None
         self._driver_impl = None
         self._meta_lock = threading.Lock()
@@ -517,10 +519,31 @@ class GraphitiCompatClient:
                 json.dump(meta, handle, ensure_ascii=False, indent=2)
             os.replace(tmp_path, self._meta_path)
 
+    def _ensure_loop(self) -> None:
+        """One dedicated background event loop for ALL graphiti operations.
+
+        graphiti's async HTTP clients pool connections per event loop.
+        asyncio.run() per call creates and closes a loop every time, so
+        pooled connections died with 'Event loop is closed' on reuse
+        (surfaced as APIConnectionError after several episodes). A single
+        long-lived loop keeps connection pools valid across calls.
+        """
+        if self._loop is not None:
+            return
+        self._loop = asyncio.new_event_loop()
+        self._loop_thread = threading.Thread(
+            target=self._loop.run_forever,
+            daemon=True,
+            name="reef-memory-loop",
+        )
+        self._loop_thread.start()
+
     def _run(self, coro: Any) -> Any:
-        """Run a graphiti coroutine to completion, serialized (Kuzu is 1-writer)."""
-        with self._lock:
-            return asyncio.run(coro)
+        """Run a graphiti coroutine to completion on the dedicated loop."""
+        self._ensure_loop()
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        with self._lock:  # Kuzu is single-writer; serialize submissions
+            return future.result()
 
     def _run_optional(self, coro: Any) -> Any:
         """Like _run, but graphiti's NotFound errors become None."""

@@ -584,3 +584,30 @@ def test_kuzu_driver_patched_for_graphiti_scope_resolution():
     else:
         scoped = driver.clone(database=group_id)
     assert scoped is driver
+
+
+def test_all_operations_share_one_event_loop(monkeypatch, tmp_path):
+    """The asyncio.run-per-call pattern died with 'Event loop is closed'
+    once pooled HTTP connections were reused across calls (real-world:
+    25-chunk doc). All operations must run on one dedicated loop."""
+    import asyncio as _asyncio
+
+    client, _ = make_client(monkeypatch, tmp_path)
+    loops = []
+
+    async def fake_add_episode(**kwargs):
+        loops.append(_asyncio.get_running_loop())
+        await _asyncio.sleep(0)  # yield, letting other tasks interleave
+        return SimpleNamespace(episode=SimpleNamespace(uuid="ep-loop"))
+
+    monkeypatch.setattr(client, "_graphiti", SimpleNamespace(add_episode=fake_add_episode))
+
+    for i in range(8):  # more calls than the failing real-world batch
+        client._add_episode(
+            graph_id="g1", name=f"ep-{i}", body="b", source_description="d",
+            reference_time=datetime.now(timezone.utc), metadata={},
+        )
+    assert len(loops) == 8
+    assert len(set(loops)) == 1, "operations ran on multiple event loops"
+    assert client._loop is not None
+    assert all(l is client._loop for l in loops)
