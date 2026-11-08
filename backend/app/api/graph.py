@@ -14,6 +14,7 @@ from zep_cloud import NotFoundError
 from . import graph_bp
 from ..config import Config
 from ..services.ontology_generator import OntologyGenerator
+from ..memory import memory_backend_name
 from ..services.graph_builder import BatchSubmission, GraphBuilderService
 from ..services.text_processor import TextProcessor
 from ..utils.file_parser import FileParser
@@ -484,7 +485,7 @@ def _build_graph_impl():
         
         # 检查配置
         errors = []
-        if not Config.ZEP_API_KEY:
+        if not Config.ZEP_API_KEY and memory_backend_name() == "zep":
             errors.append(t('api.zepApiKeyMissing'))
         if errors:
             logger.error(f"配置错误: {errors}")
@@ -882,7 +883,7 @@ def get_graph_data(graph_id: str):
     获取图谱数据（节点和边）
     """
     try:
-        if not Config.ZEP_API_KEY:
+        if not Config.ZEP_API_KEY and memory_backend_name() == "zep":
             return jsonify({
                 "success": False,
                 "error": t('api.zepApiKeyMissing')
@@ -910,7 +911,7 @@ def delete_graph(graph_id: str):
     删除Zep图谱
     """
     try:
-        if not Config.ZEP_API_KEY:
+        if not Config.ZEP_API_KEY and memory_backend_name() == "zep":
             return jsonify({
                 "success": False,
                 "error": t('api.zepApiKeyMissing')

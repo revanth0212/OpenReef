@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.config import Config
 from app.utils.llm_client import LLMClient, LLMResponseError, _is_failoverable
 from app.utils.llm_providers import clear_registry_cache
 
@@ -86,7 +87,10 @@ def test_explicit_credentials_single_chain():
     assert client._chain[0].provider == "explicit"
 
 
-def test_missing_api_key_raises_as_before():
+def test_missing_api_key_raises_as_before(monkeypatch):
+    # The repo may contain a real .env (dotenv override loads it into Config),
+    # so pin the value instead of relying on an unset environment.
+    monkeypatch.setattr(Config, "LLM_API_KEY", None)
     with pytest.raises(ValueError, match="LLM_API_KEY"):
         LLMClient(api_key=None, base_url="u", model="m")
 

@@ -420,3 +420,18 @@ def test_real_kuzu_lifecycle_offline(monkeypatch, tmp_path):
     client.graph.delete("g-real")
     with pytest.raises(Exception):
         client.graph.get("g-real")
+
+
+# ── regression: API layer must not gate on ZEP_API_KEY unconditionally ──
+
+@pytest.mark.parametrize("path", ["app/api/graph.py", "app/api/simulation.py"])
+def test_api_layer_has_no_unconditional_zep_gates(path):
+    from pathlib import Path
+
+    source = Path(path).read_text(encoding="utf-8")
+    for lineno, line in enumerate(source.splitlines(), 1):
+        stripped = line.strip()
+        if "if not Config.ZEP_API_KEY:" in stripped:
+            pytest.fail(f"{path}:{lineno} unconditional ZEP_API_KEY gate")
+        if "if not Config.ZEP_API_KEY" in stripped and "memory_backend_name()" not in stripped:
+            pytest.fail(f"{path}:{lineno} ZEP gate missing backend condition")
