@@ -139,3 +139,16 @@ def test_customization_suffix_appended_only_when_set(monkeypatch, tmp_path):
     assert suffix.startswith("\n\n【Report customization】")
     assert "at most 3 sections" in suffix
     assert "busy decision-makers" in suffix
+
+
+def test_eli5_and_narrative_presets():
+    eli5 = ReportOptions.from_dict({"preset": "eli5"})
+    assert eli5.length == "short" and eli5.max_sections == 3
+    assert eli5.complexity == "general" and eli5.tone == "vivid"
+
+    block = eli5.customization_block(english=False, for_plan=False)
+    assert "面向普通读者" in block and "生动叙事" in block
+
+    narrative = ReportOptions.from_dict({"preset": "narrative"})
+    assert narrative.length == "long" and narrative.tone == "vivid"
+    assert narrative.complexity == "general"

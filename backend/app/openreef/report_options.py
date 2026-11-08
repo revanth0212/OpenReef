@@ -60,6 +60,20 @@ PRESETS: Dict[str, Dict[str, Any]] = {
         "audience": "domain experts",
         "complexity": "expert",
     },
+    "eli5": {
+        "length": "short",
+        "max_sections": 3,
+        "tone": "vivid",
+        "audience": "curious newcomers",
+        "complexity": "general",
+    },
+    "narrative": {
+        "length": "long",
+        "max_sections": 5,
+        "tone": "vivid",
+        "audience": "general readers",
+        "complexity": "general",
+    },
 }
 
 _MAX_FREE_TEXT = 120

@@ -89,11 +89,14 @@ models, and limitations.
 - Everything else: see [testing.md](testing.md) for the full verification
   matrix and log locations.
 
-## Report customization (optional)
+## Advanced options (optional)
 
-In Step 3, after the simulation completes, expand **Report options** above
-the Generate Report button: presets (Standard / Executive Brief / Deep
-Dive), report language (defaults to the UI language), length, tone,
-complexity, and a free-text audience. Choices persist with the report
-(`options` in the report JSON). Everything is optional — with no choices,
-report generation is byte-for-byte the upstream behavior.
+Step 1 has an **Advanced options** section for everything that doesn't
+depend on runtime data, so you can be hands-free later: report presets
+(Standard / Executive Brief / Deep Dive / Explain like I'm an amateur /
+Narrative feature), report language (defaults to the UI language), length,
+tone, complexity, audience, agent web search (needs `TAVILY_API_KEY`), and
+a max-rounds override. Choices persist for the session (survive refresh)
+and are applied automatically at prepare and report time. Everything is
+optional — defaults are exactly the upstream behavior. Report choices are
+also stored with the report (`options` in the report JSON).

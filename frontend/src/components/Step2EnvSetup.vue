@@ -786,8 +786,18 @@ let lastLoggedConfigStage = ''
 // 模拟轮数配置
 const useCustomRounds = ref(false) // 默认使用自动配置轮数
 const customMaxRounds = ref(40)   // 默认推荐40轮
-// OpenReef: 是否为Agent启用联网搜索（需服务端 TAVILY_API_KEY）
-const webSearchEnabled = ref(false)
+
+// OpenReef: a max-rounds choice made in Step 1 (advanced section) pre-fills
+// the rounds card here.
+if (simSettings.maxRounds) {
+  useCustomRounds.value = true
+  customMaxRounds.value = simSettings.maxRounds
+}
+// OpenReef: agent web search — chosen in Step 1 (advanced section); the
+// toggle here stays two-way bound with the shared settings store.
+import { getSimSettings, updateSimSettings } from '../store/simSettings'
+const simSettings = getSimSettings()
+const webSearchEnabled = ref(simSettings.webSearch)
 
 // Watch stage to update phase
 watch(currentStage, (newStage) => {
@@ -905,6 +915,7 @@ const startPrepareSimulation = async () => {
   emit('update-status', 'processing')
   
   try {
+    updateSimSettings({ webSearch: webSearchEnabled.value })
     const res = await prepareSimulation({
       simulation_id: props.simulationId,
       use_llm_for_profiles: true,

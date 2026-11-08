@@ -714,6 +714,18 @@
     "complexityInformed": "关注该领域的读者",
     "complexityExpert": "领域专家",
     "audience": "目标读者",
-    "audiencePlaceholder": "例如：央行研究员（可选）"
+    "audiencePlaceholder": "例如：央行研究员（可选）",
+    "presetEli5": "外行友好（娓娓道来）",
+    "presetNarrative": "叙事特写"
+  },
+  "adv": {
+    "sectionTitle": "高级选项",
+    "optional": "可选",
+    "sectionDesc": "与运行时无关的设置，会在后续流程中自动生效。保持默认即获得标准体验。",
+    "toggle": "展开高级选项",
+    "reportGroup": "报告",
+    "simGroup": "模拟",
+    "maxRounds": "最大轮数（可选）",
+    "maxRoundsPlaceholder": "自动"
   }
 }

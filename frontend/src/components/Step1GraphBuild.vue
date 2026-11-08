@@ -158,14 +158,122 @@
         <div class="card-content">
           <p class="api-note">POST /api/simulation/create</p>
           <p class="description">{{ $t('step1.buildCompleteDesc') }}</p>
-          <button 
-            class="action-btn" 
+          <button
+            class="action-btn"
             :disabled="currentPhase < 2 || creatingSimulation"
             @click="handleEnterEnvSetup"
           >
             <span v-if="creatingSimulation" class="spinner-sm"></span>
             {{ creatingSimulation ? $t('step1.creating') : $t('step1.enterEnvSetup') + ' ➝' }}
           </button>
+        </div>
+      </div>
+
+      <!-- OpenReef: Advanced options (all optional, applied later in the flow) -->
+      <div class="step-card">
+        <div class="card-header">
+          <div class="step-info">
+            <span class="step-num">⚙</span>
+            <span class="step-title">{{ $t('adv.sectionTitle') }}</span>
+          </div>
+          <div class="step-status">
+            <span class="badge pending">{{ $t('adv.optional') }}</span>
+          </div>
+        </div>
+        <div class="card-content">
+          <p class="description">{{ $t('adv.sectionDesc') }}</p>
+
+          <button class="adv-toggle" @click="advancedOpen = !advancedOpen">
+            {{ $t('adv.toggle') }}
+            <span class="caret">{{ advancedOpen ? '▲' : '▼' }}</span>
+          </button>
+
+          <div v-if="advancedOpen" class="adv-panel">
+            <div class="adv-group">
+              <span class="adv-group-title">{{ $t('adv.reportGroup') }}</span>
+              <div class="adv-grid">
+                <div class="adv-row">
+                  <label>{{ $t('reportOpts.preset') }}</label>
+                  <select v-model="settings.reportOpts.preset" @change="onPresetChange" class="adv-input">
+                    <option value="standard">{{ $t('reportOpts.presetStandard') }}</option>
+                    <option value="executive">{{ $t('reportOpts.presetExecutive') }}</option>
+                    <option value="deep_dive">{{ $t('reportOpts.presetDeepDive') }}</option>
+                    <option value="eli5">{{ $t('reportOpts.presetEli5') }}</option>
+                    <option value="narrative">{{ $t('reportOpts.presetNarrative') }}</option>
+                  </select>
+                </div>
+                <div class="adv-row">
+                  <label>{{ $t('reportOpts.language') }}</label>
+                  <select v-model="settings.reportOpts.language" class="adv-input">
+                    <option value="">{{ $t('reportOpts.followUI') }}</option>
+                    <option value="en">English</option>
+                    <option value="zh">中文</option>
+                    <option value="es">Español</option>
+                    <option value="fr">Français</option>
+                    <option value="de">Deutsch</option>
+                    <option value="pt">Português</option>
+                    <option value="ru">Русский</option>
+                  </select>
+                </div>
+                <div class="adv-row">
+                  <label>{{ $t('reportOpts.length') }}</label>
+                  <select v-model="settings.reportOpts.length" class="adv-input">
+                    <option value="">{{ $t('reportOpts.presetDefault') }}</option>
+                    <option value="short">{{ $t('reportOpts.lengthShort') }}</option>
+                    <option value="standard">{{ $t('reportOpts.lengthStandard') }}</option>
+                    <option value="long">{{ $t('reportOpts.lengthLong') }}</option>
+                  </select>
+                </div>
+                <div class="adv-row">
+                  <label>{{ $t('reportOpts.tone') }}</label>
+                  <select v-model="settings.reportOpts.tone" class="adv-input">
+                    <option value="">{{ $t('reportOpts.presetDefault') }}</option>
+                    <option value="professional">{{ $t('reportOpts.toneProfessional') }}</option>
+                    <option value="analytical">{{ $t('reportOpts.toneAnalytical') }}</option>
+                    <option value="journalistic">{{ $t('reportOpts.toneJournalistic') }}</option>
+                    <option value="vivid">{{ $t('reportOpts.toneVivid') }}</option>
+                  </select>
+                </div>
+                <div class="adv-row">
+                  <label>{{ $t('reportOpts.complexity') }}</label>
+                  <select v-model="settings.reportOpts.complexity" class="adv-input">
+                    <option value="">{{ $t('reportOpts.presetDefault') }}</option>
+                    <option value="general">{{ $t('reportOpts.complexityGeneral') }}</option>
+                    <option value="informed">{{ $t('reportOpts.complexityInformed') }}</option>
+                    <option value="expert">{{ $t('reportOpts.complexityExpert') }}</option>
+                  </select>
+                </div>
+                <div class="adv-row">
+                  <label>{{ $t('reportOpts.audience') }}</label>
+                  <input v-model="settings.reportOpts.audience" class="adv-input" :placeholder="$t('reportOpts.audiencePlaceholder')" />
+                </div>
+              </div>
+            </div>
+
+            <div class="adv-group">
+              <span class="adv-group-title">{{ $t('adv.simGroup') }}</span>
+              <div class="adv-grid">
+                <div class="adv-row">
+                  <label class="switch-control">
+                    <input type="checkbox" v-model="settings.webSearch">
+                    <span class="switch-track"></span>
+                    <span class="switch-label">{{ $t('step2.webSearchToggle') }}</span>
+                  </label>
+                </div>
+                <div class="adv-row">
+                  <label>{{ $t('adv.maxRounds') }}</label>
+                  <input
+                    v-model.number="settings.maxRounds"
+                    type="number"
+                    min="10"
+                    max="500"
+                    class="adv-input"
+                    :placeholder="$t('adv.maxRoundsPlaceholder')"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -191,6 +299,7 @@ import { computed, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { createSimulation } from '../api/simulation'
+import { getSimSettings, updateReportOpts } from '../store/simSettings'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -205,6 +314,15 @@ const props = defineProps({
 })
 
 defineEmits(['next-step'])
+
+// OpenReef advanced options (shared with Steps 2 and 3 via the store)
+const advancedOpen = ref(false)
+const settings = getSimSettings()
+
+const onPresetChange = () => {
+  // preset supplies style values; user can override afterwards
+  updateReportOpts({ length: '', tone: '', complexity: '', audience: '' })
+}
 
 const selectedOntologyItem = ref(null)
 const logContent = ref(null)
@@ -696,5 +814,79 @@ watch(() => props.systemLogs.length, () => {
 .log-msg {
   color: #CCC;
   word-break: break-all;
+}
+
+/* ── OpenReef: advanced options ── */
+.adv-toggle {
+  background: none;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  cursor: pointer;
+  padding: 4px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.adv-toggle .caret {
+  font-size: 10px;
+  color: #999;
+}
+
+.adv-panel {
+  margin-top: 10px;
+  border: 1px solid #E5E5E5;
+  border-radius: 8px;
+  padding: 14px;
+  background: #FAFAFA;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.adv-group-title {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #999;
+  margin-bottom: 8px;
+}
+
+.adv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+
+.adv-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.adv-row label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+}
+
+.adv-input {
+  padding: 7px 9px;
+  font-size: 12px;
+  border: 1px solid #DDD;
+  border-radius: 6px;
+  background: #FFF;
+  font-family: 'Space Grotesk', 'Noto Sans SC', system-ui, sans-serif;
+}
+
+.adv-input:focus {
+  outline: none;
+  border-color: #000;
 }
 </style>

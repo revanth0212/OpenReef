@@ -714,6 +714,18 @@
     "complexityInformed": "Engaged readers",
     "complexityExpert": "Domain experts",
     "audience": "Audience",
-    "audiencePlaceholder": "e.g. central-bank researchers (optional)"
+    "audiencePlaceholder": "e.g. central-bank researchers (optional)",
+    "presetEli5": "Explain like I'm an amateur",
+    "presetNarrative": "Narrative feature"
+  },
+  "adv": {
+    "sectionTitle": "Advanced options",
+    "optional": "Optional",
+    "sectionDesc": "Runtime-independent settings, applied automatically later in the flow. Leave everything as-is for the standard experience.",
+    "toggle": "Show advanced options",
+    "reportGroup": "Report",
+    "simGroup": "Simulation",
+    "maxRounds": "Max rounds (optional)",
+    "maxRoundsPlaceholder": "auto"
   }
 }
