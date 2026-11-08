@@ -380,8 +380,9 @@ def test_batch_full_lifecycle(monkeypatch, tmp_path):
     page = client.batch.list(limit=100)
     assert page.next_cursor is None
     assert any(b.batch_id == created.batch_id and b.metadata.get("mirofish_operation_id") == "op-1" for b in page.batches)
-    items = client.batch.list_items(created.batch_id)
-    assert len(items) == 1 and items[0].episode_uuid == "ep-x"
+    page = client.batch.list_items(created.batch_id)
+    assert page.next_cursor is None
+    assert len(page.items) == 1 and page.items[0].episode_uuid == "ep-x"
 
 
 def test_batch_add_to_missing_batch_raises_404(monkeypatch, tmp_path):

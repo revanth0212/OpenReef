@@ -104,6 +104,8 @@ def _edge_to_ns(edge: Any) -> Any:
         valid_at=getattr(edge, "valid_at", None),
         invalid_at=getattr(edge, "invalid_at", None),
         expired_at=getattr(edge, "expired_at", None),
+        episode_ids=list(getattr(edge, "episodes", None) or []),
+        fact_type=getattr(edge, "fact_type", None),
     )
 
 
@@ -148,6 +150,7 @@ class _EpisodeNamespace:
             name=getattr(episode, "name", "") or "",
             content=getattr(episode, "content", "") or "",
             status="ready",  # synchronous backend: ingestion is complete
+            processed=True,  # graph_builder and the updater poll this flag
         )
 
 
@@ -262,11 +265,11 @@ class _BatchNamespace:
         next_cursor = start + limit if start + limit < len(all_ids) else None
         return SimpleNamespace(batches=page, next_cursor=next_cursor)
 
-    def list_items(self, batch_id: str, limit: int = 100, cursor: Any = None) -> List[Any]:
+    def list_items(self, batch_id: str, limit: int = 100, cursor: Any = None) -> Any:
         record = self._owner._batches.get(batch_id)
         if record is None:
             raise _not_found(f"batch {batch_id} not found")
-        return list(record["items"])
+        return SimpleNamespace(items=list(record["items"]), next_cursor=None)
 
 
 class _GraphNamespace:
