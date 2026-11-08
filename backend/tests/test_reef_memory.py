@@ -385,6 +385,58 @@ def test_batch_full_lifecycle(monkeypatch, tmp_path):
     assert len(page.items) == 1 and page.items[0].episode_uuid == "ep-x"
 
 
+def test_add_episode_never_passes_unsupported_kwargs(monkeypatch, tmp_path):
+    """Mirror of graphiti-core 0.31's real add_episode signature: unknown
+    kwargs must never be passed (the episode_metadata TypeError class)."""
+    from graphiti_core import Graphiti
+    import inspect
+
+    real_params = set(inspect.signature(Graphiti.add_episode).parameters) - {"self"}
+
+    client, _ = make_client(monkeypatch, tmp_path)
+    calls = []
+
+    strict = SimpleNamespace()
+
+    async def strict_add_episode(**kwargs):
+        calls.append(kwargs)
+        unknown = set(kwargs) - real_params
+        assert not unknown, f"unknown kwargs passed to add_episode: {unknown}"
+        return SimpleNamespace(episode=SimpleNamespace(uuid="ep-s"))
+
+    strict.add_episode = strict_add_episode
+    monkeypatch.setattr(client, "_graphiti", strict)
+
+    client._add_episode(
+        graph_id="g1",
+        name="ep",
+        body="body",
+        source_description="desc",
+        reference_time=datetime.now(timezone.utc),
+        metadata={"platform": "twitter", "round": 3},
+    )
+    sent = calls[0]
+    assert "episode_metadata" not in sent
+    assert "metadata=" in sent["source_description"]
+    assert '"platform": "twitter"' in sent["source_description"]
+
+
+def test_add_episode_omits_metadata_suffix_when_no_metadata(monkeypatch, tmp_path):
+    client, _ = make_client(monkeypatch, tmp_path)
+    calls = []
+
+    async def fake_add_episode(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(episode=SimpleNamespace(uuid="ep-n"))
+
+    monkeypatch.setattr(client, "_graphiti", SimpleNamespace(add_episode=fake_add_episode))
+    client._add_episode(
+        graph_id="g1", name="ep", body="b", source_description="clean desc",
+        reference_time=datetime.now(timezone.utc), metadata={},
+    )
+    assert calls[0]["source_description"] == "clean desc"
+
+
 def test_batch_add_to_missing_batch_raises_404(monkeypatch, tmp_path):
     client, _ = make_client(monkeypatch, tmp_path)
     with pytest.raises(Exception) as exc_info:

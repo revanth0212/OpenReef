@@ -594,15 +594,24 @@ class GraphitiCompatClient:
         from graphiti_core.nodes import EpisodeType
 
         self._ensure_graphiti()
-        meta_payload = [json.dumps(metadata, ensure_ascii=False)] if metadata else []
+
+        # graphiti-core's add_episode has no metadata parameter (verified
+        # against the installed signature); provenance rides inside the
+        # stored source_description so it survives any graphiti version.
+        description = source_description
+        if metadata:
+            description = (
+                f"{source_description} | "
+                f"metadata={json.dumps(metadata, ensure_ascii=False)}"
+            )
+
         return self._run(
             self._graphiti.add_episode(
                 name=name,
                 episode_body=body,
                 source=EpisodeType.message,
-                source_description=source_description,
+                source_description=description,
                 reference_time=reference_time,
                 group_id=graph_id,
-                episode_metadata=meta_payload,
             )
         )
