@@ -60,13 +60,14 @@ who ignores every OpenReef extra gets behavior **identical** to MiroFish.
 
 | # | Feature | State | Lives in | Enabled by |
 |---|---------|-------|----------|-----------|
-| 7 | **ReefMemory** — native graph memory (Graphiti + embedded Kuzu), Zep optional | core done | `app/memory/`, `config.py` | default; `MEMORY_BACKEND=zep` for legacy |
+| 7 | **ReefMemory** — native graph memory (Graphiti + embedded Kuzu), Zep optional. Sync batch build + async updater ingestion (combined bulk extraction), typed extraction, real `processed` polling | done | `app/memory/`, `config.py` | default; `MEMORY_BACKEND=zep` for legacy |
 | 1 | **Multi-LLM** — provider registry, per-stage chains, failover | done | `app/utils/llm_providers.py`, `llm_client.py`, `app/api/llm.py` | `llm.config.json` / `LLM_PROVIDERS_*` |
 | 2 | **Web search** — Tavily tool for sim agents + report agent | done | `app/utils/web_search.py`, sim scripts, `report_agent.py` | `TAVILY_API_KEY` + per-sim toggle |
 | 3 | **End-to-end English** — reports in English (UI i18n existed upstream) | done | `report_agent.py` (`*_EN` templates) | follows UI locale |
 | — | **Step-3 resilience** — no force-restart on refresh, rehydrate, visibility catch-up | done | `frontend/.../Step3Simulation.vue` | always on |
 | — | **Local-model adapter** — auto root-JSON schema, token cap, rep penalty (replaces the old shim) | done | `app/openreef/localmodels.py` | auto via endpoint heuristic; `OPENREEF_LOCAL_LLM` override |
 | — | **Apple-container runner** | done | `scripts/run-apple-container.sh` | manual |
+| — | **Real-component verifier** — pre-flight gate for the memory backend (no mocks) | done | `backend/scripts/verify_reef_memory.py` | manual; must pass before container tests |
 | 4 | Report customization (length/tone/complexity presets) | pending | — | — |
 | 6 | ReefLive (watch agents work) | pending | — | — |
 | 5 | ReefReport (HTML/PDF/infographics) | pending | — | — |
@@ -112,7 +113,8 @@ re-apply ours) · 🟡 careful (real edits; read the merge) · 🔴 core surgery
 |---|---|---|
 | `services/simulation_manager.py` | `web_search_enabled` param threading | 🟢 |
 | `services/simulation_config_generator.py` | `SimulationParameters.web_search_enabled` + serialization | 🟢 |
-| `api/simulation.py` | prepare API accepts `web_search_enabled` | 🟢 |
+| `api/simulation.py` | prepare API accepts `web_search_enabled`; three ZEP-key gates now backend-conditional | 🟢 |
+| `api/graph.py` | three ZEP-key gates (build/data/delete) now backend-conditional via `memory_backend_name()` | 🟢 |
 | `scripts/run_twitter_simulation.py`, `run_reddit_simulation.py` | `_maybe_add_web_search_tool()` (camel `FunctionTool` attach) | 🟡 upstream revises these scripts — re-apply the call + method |
 | `tests/test_zep_graph_memory_updater.py` | Fake-client injection updated for the factory | 🟢 |
 
@@ -129,6 +131,101 @@ re-apply ours) · 🟡 careful (real edits; read the merge) · 🔴 core surgery
 | `components/Step2EnvSetup.vue` | Providers panel + web-search toggle + locales | 🟡 |
 | `i18n/index.js` | Browser-language detection for first visit | 🟢 |
 | `api/llm.js` | 🆕 | 🟢 |
+
+## 4b. Design decisions and justifications (why, not what)
+
+Decisions made during implementation, recorded so future changes don't
+accidentally undo them. Each entry is the conclusion of a real failure or
+trade-off — read before redesigning any of it.
+
+### Memory backend (ReefMemory)
+
+- **Duck-typed compat client, not call-site rewrites.** MiroFish talks to
+  Zep through ~17 methods on 6 namespaces. Rewiring every service would
+  touch all five memory services + API layer; instead
+  `app/memory/graphiti_client.py` implements the same surface over
+  Graphiti, so upstream code runs unmodified. Merge cost: one factory
+  call per service. This is the single most important structural decision.
+- **Graphiti (Apache-2.0) as the engine — Zep's own open-source core.** Not
+  a hand-rolled KG: entity/edge extraction, temporal invalidation, and
+  hybrid search come from the team that built Zep, so semantics stay close
+  to what MiroFish expects.
+- **Embedded Kuzu over FalkorDB/Neo4j** (for v1): memory "lives with the
+  tool" — one file under `uploads/reef-memory/`, zero new services, single
+  container unchanged. Accepted cost: the Kuzu driver is deprecated
+  upstream in graphiti, so we bridge its gaps **in our code** (`_database`/
+  `clone` scope shim, FTS index bootstrap). FalkorDB remains the scale-out
+  path (driver swap, not redesign). We deliberately did NOT fork graphiti.
+- **Dedicated background event loop for all graphiti calls.** The first
+  attempt used `asyncio.run()` per call; graphiti's async HTTP clients pool
+  connections per loop, so pooled connections died with "Event loop is
+  closed" on reuse (2-chunk tests pass, 25-chunk docs failed). One daemon
+  loop keeps pools valid. Lesson encoded in `test_all_operations_share_one_
+  event_loop`.
+- **Two ingestion paths, mirroring Zep's actual contract.** Graph build
+  (`batch.add`) is synchronous (build's `_wait_for_batch` expects to poll a
+  terminal batch status — the vocabulary is `succeeded/partial/failed/
+  invalid/canceled`, NOT "processed"; getting this wrong cost a 600s
+  timeout). Simulation activity (`graph.add`) is fire-and-forget with a
+  pre-assigned uuid + a daemon worker that groups same-graph episodes into
+  `add_episode_bulk(use_combined_extraction=True)` — one extraction pass
+  per flush instead of one per episode (the real wall-clock win; ~15s →
+  ~30s for a whole batch). The updater's drain polls a REAL `processed`
+  flag (pending→False, done→kuzu-verified True, failed→terminal True after
+  one retry — a drain can never wedge).
+- **Typed extraction from the stored ontology.** `set_ontology` registers
+  the live pydantic classes in a process registry; `add_episode` passes
+  them as `entity_types`/`edge_types`. Free extraction left nodes unlabeled,
+  which silently broke `ZepEntityReader`'s label-based filtering (0
+  entities). Typed extraction also found more edges. Registry is
+  process-lifetime; the JSON snapshot in meta is informational only.
+- **Identity cross-encoder.** Graphiti requires a cross-encoder at
+  construction and defaults to OpenAI's, which breaks providers without a
+  rerank endpoint. A neutral identity reranker keeps search working on any
+  OpenAI-compatible endpoint; a provider reranker stays a possible opt-in.
+- **Probe-based embedding dimensions.** No model→dim lookup table (a
+  maintenance liability — models change daily); one tiny `/embeddings` call
+  at init measures it. `REEF_MEMORY_EMBEDDER_DIM` is the explicit override
+  for unreachable endpoints.
+- **Independent embedder provider.** Extraction rides the ontology chain;
+  embeddings default to the same provider but can live elsewhere (e.g.
+  hosted chat + local oMLX embeddings) via three env vars — mixed setups
+  are a first-class use case, not an edge case.
+
+### Methodology (the expensive lessons)
+
+- **`backend/scripts/verify_reef_memory.py` is the pre-flight gate.** It
+  drives the real service layer (GraphBuilderService/ZepEntityReader/
+  ZepToolsService) against real Graphiti+Kuzu+configured providers — no
+  mocks. Rule: it must pass locally BEFORE anyone is asked to test in a
+  container. It exists because every compat bug that reached the user
+  (batch vocabulary, `processed` flag, page shapes, arg capture, event
+  loop) was invisible to unit tests with assumption-shaped fakes.
+- **Audit call sites, not SDK docs.** Each miss came from implementing
+  against the SDK's happy-path surface instead of the call sites' lifecycle
+  behavior. `tests/test_memory_contract.py` now walks all backend sources
+  and fails if any invoked client method is missing from the compat surface.
+- **State machines discovered (Zep compat contract)** — if the compat is
+  ever reworked, these are the exact semantics callers depend on:
+  - batch lifecycle `draft → succeeded` (terminal set above); `batch.get`
+    must expose `progress.{percent_complete, succeeded_items}`;
+    `batch.list/list_items` return page objects (`next_cursor`, `.items`)
+  - episodes expose boolean `processed`; `graph.search` returns edges with
+    `uuid_/fact/source_node_uuid/target_node_uuid` + a `nodes` list
+  - `graph.node.get_edges(node_uuid)`, `with_raw_response.get_by_graph_id`
+    return `.data`/`.headers` shapes for the paging layer
+  - `set_ontology` receives model CLASSES and `(class, source_targets)`
+    edge tuples, not instances
+  - node `labels` must include the entity type name (reader filter)
+- **The verifier's mirror rule.** Any code path the app calls (e.g.
+  `_wait_for_batch`) must be exercised by its REAL method in the verifier,
+  not a re-implementation — re-implementing the call hid the batch-vocab bug.
+
+### Presentation & i18n
+
+- Upstream's Mandarin comments stay (merge-cost vs payoff); everything
+  OpenReef authors is English; `.env.example` is fully English because it
+  is the configuration front door.
 
 ## 5. Upstream-sync runbook
 
@@ -153,7 +250,6 @@ before pushing.
 ## 6. Known gaps / deferred
 
 - FalkorDB driver option for ReefMemory (scale-out; driver swap)
-- Ontology-enforced typed extraction (v1 stores ontology, free extraction)
 - Zep Cloud → ReefMemory data migration tool
 - Publishing our own multi-arch images (after feature set stabilizes)
 - Per-agent model mix inside one simulation (needs OASIS-side spike)
