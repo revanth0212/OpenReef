@@ -373,8 +373,8 @@ def test_batch_full_lifecycle(monkeypatch, tmp_path):
 
     client.batch.add(created.batch_id, [SimpleNamespace(graph_id="g1", data="x")])
     processed = client.batch.process(created.batch_id)
-    assert processed.status == "processed"
-    assert client.batch.get(created.batch_id).status == "processed"
+    assert processed.status == "succeeded"
+    assert client.batch.get(created.batch_id).status == "succeeded"
 
     # reconciliation shapes used by graph_builder
     page = client.batch.list(limit=100)
@@ -383,6 +383,11 @@ def test_batch_full_lifecycle(monkeypatch, tmp_path):
     page = client.batch.list_items(created.batch_id)
     assert page.next_cursor is None
     assert len(page.items) == 1 and page.items[0].episode_uuid == "ep-x"
+    assert page.items[0].status == "succeeded"
+
+    summary = client.batch.get(created.batch_id)
+    assert summary.progress.percent_complete == 100.0
+    assert summary.progress.succeeded_items == 1
 
 
 def test_add_episode_never_passes_unsupported_kwargs(monkeypatch, tmp_path):

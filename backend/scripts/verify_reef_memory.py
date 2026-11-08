@@ -117,16 +117,13 @@ def main():
     check("batch submission returned episode uuids", len(submission.episode_uuids) == len(chunks),
           f"episodes={len(submission.episode_uuids)}")
 
-    pending = set(submission.episode_uuids)
-    deadline = time.time() + 120
-    while pending and time.time() < deadline:
-        for uuid_ in list(pending):
-            ep = service.client.graph.episode.get(uuid_=uuid_)
-            if getattr(ep, "processed", False):
-                pending.remove(uuid_)
-        if pending:
-            time.sleep(2)
-    check("all episodes processed", not pending, f"pending={len(pending)}")
+    # the exact call api/graph.py build_task makes after submission
+    wait_result = service._wait_for_batch(
+        submission,
+        lambda msg, p: print(f"    wait: {msg}", flush=True),
+    )
+    check("_wait_for_batch terminal + item validation", len(wait_result) == len(chunks),
+          f"items={len(wait_result)}")
 
     step("graph statistics + entity reads")
     info = service.client.graph.get(graph_id)

@@ -285,7 +285,8 @@ class _BatchNamespace:
                     sequence_index=index,
                     uuid=episode_uuid,
                     episode_uuid=episode_uuid,
-                    status="ok",
+                    status="succeeded",
+                    error=None,
                 )
             )
         record["items"].extend(details)
@@ -295,17 +296,27 @@ class _BatchNamespace:
         record = self._owner._batches.get(batch_id)
         if record is None:
             raise _not_found(f"batch {batch_id} not found")
-        record["status"] = "processed"
-        return SimpleNamespace(batch_id=batch_id, status="processed")
+        record["status"] = "succeeded"
+        return SimpleNamespace(batch_id=batch_id, status="succeeded")
 
     def get(self, batch_id: str) -> Any:
         record = self._owner._batches.get(batch_id)
         if record is None:
             raise _not_found(f"batch {batch_id} not found")
+        succeeded = len(record["items"]) if record["status"] == "succeeded" else 0
+        total = record["metadata"].get("chunk_count") or len(record["items"])
+        percent = 100.0 if record["status"] == "succeeded" else (
+            100.0 * succeeded / total if total else 0.0
+        )
         return SimpleNamespace(
             batch_id=batch_id,
             status=record["status"],
             metadata=record["metadata"],
+            progress=SimpleNamespace(
+                percent_complete=percent,
+                succeeded_items=succeeded,
+                total_items=total,
+            ),
         )
 
     def list(self, limit: int = 100, cursor: Any = None) -> Any:
