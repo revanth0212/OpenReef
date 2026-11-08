@@ -228,6 +228,44 @@ def test_set_ontology_stored_in_meta(monkeypatch, tmp_path):
     assert meta["g1"]["ontology"]["entities"]["Person"]["name"] == "Person"
 
 
+def test_set_ontology_accepts_pydantic_model_classes(monkeypatch, tmp_path):
+    """Zep's external ontology API passes model CLASSES, not instances."""
+    from pydantic import BaseModel
+
+    class PersonEntity(BaseModel):
+        name: str = "Person"
+        description: str = "A person"
+
+    class WorksFor(BaseModel):
+        description: str = "employment"
+
+    client, _ = make_client(monkeypatch, tmp_path)
+    client.graph.create(graph_id="g1")
+    client.graph.set_ontology(
+        graph_ids=["g1"],
+        entities={"PersonEntity": PersonEntity},
+        edges={"WORKS_FOR": (WorksFor, [("PersonEntity", "OrganizationEntity")])},
+    )
+    meta = json.loads((tmp_path / "graphs.json").read_text(encoding="utf-8"))
+    entities = meta["g1"]["ontology"]["entities"]
+    assert entities["PersonEntity"]["description"] == "A person"
+    edge = meta["g1"]["ontology"]["edges"]["WORKS_FOR"]
+    assert edge["model"]["description"] == "employment"
+    assert edge["between"] == ["('PersonEntity', 'OrganizationEntity')"] or "PersonEntity" in str(edge["between"])
+
+
+def test_set_ontology_never_crashes_on_odd_entries(monkeypatch, tmp_path):
+    client, _ = make_client(monkeypatch, tmp_path)
+    client.graph.create(graph_id="g1")
+    client.graph.set_ontology(
+        graph_ids=["g1"],
+        entities={"Weird": object(), "Broken": SimpleNamespace(model_dump=lambda: 1 / 0)},
+        edges=None,
+    )
+    meta = json.loads((tmp_path / "graphs.json").read_text(encoding="utf-8"))
+    assert "Weird" in meta["g1"]["ontology"]["entities"]
+
+
 def test_node_get_and_edges(monkeypatch, tmp_path):
     nodes = [_entity_node("n1", "Alice"), _entity_node("n2", "Bob")]
     edges = [_entity_edge("e1", "f1", "n1", "n2")]

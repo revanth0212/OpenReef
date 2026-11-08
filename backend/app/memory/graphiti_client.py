@@ -51,6 +51,34 @@ def _not_found(message: str) -> NotFoundError:
     return NotFoundError(body={"message": message})
 
 
+def _safe_ontology_schema(item: Any) -> Any:
+    """Best-effort JSON snapshot of an ontology entry (stored, not enforced).
+
+    Zep's external ontology API takes pydantic model CLASSES, so entries
+    may be classes, instances, or (for edges) tuples of
+    (model_class, source_target_pairs). Never crash on any of them.
+    """
+    try:
+        if isinstance(item, tuple) and item:
+            return {
+                "model": _safe_ontology_schema(item[0]),
+                "between": [str(part) for part in item[1:]],
+            }
+        if isinstance(item, type):  # pydantic model class
+            if hasattr(item, "model_json_schema"):
+                return item.model_json_schema()
+            if hasattr(item, "schema"):
+                return item.schema()
+            return str(item)
+        if hasattr(item, "model_dump"):
+            return item.model_dump()
+        if hasattr(item, "dict"):
+            return item.dict()
+        return str(item)
+    except Exception:
+        return str(item)
+
+
 def _parse_rfc3339(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -245,8 +273,8 @@ class _GraphNamespace:
         for graph_id in graph_ids or []:
             entry = meta.setdefault(graph_id, {"name": graph_id, "created_at": datetime.now(timezone.utc).isoformat()})
             entry["ontology"] = {
-                "entities": {name: getattr(model, "model_dump", lambda: str(model))() for name, model in (entities or {}).items()},
-                "edges": {name: str(model) for name, model in (edges or {}).items()},
+                "entities": {name: _safe_ontology_schema(model) for name, model in (entities or {}).items()},
+                "edges": {name: _safe_ontology_schema(model) for name, model in (edges or {}).items()},
             }
         self._owner._save_meta(meta)
         return SimpleNamespace(status="ok")
