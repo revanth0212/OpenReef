@@ -6,6 +6,7 @@ store, lifecycle behavior, and backend selection.
 """
 
 import json
+import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -309,19 +310,22 @@ def test_search_maps_edges_and_nodes(monkeypatch, tmp_path):
 
 # ── episode writes ──────────────────────────────────────────────────
 
-def test_graph_add_builds_episode(monkeypatch, tmp_path):
+def test_graph_add_enqueues_async_job(monkeypatch, tmp_path):
     client, _ = make_client(monkeypatch, tmp_path)
     captured = {}
+    enqueued = []
 
-    def fake_add(graph_id, name, body, source_description, reference_time, metadata):
+    def fake_enqueue(graph_id, name, body, source_description, reference_time, metadata):
         captured.update(
             graph_id=graph_id, name=name, body=body,
             source_description=source_description,
             reference_time=reference_time, metadata=metadata,
         )
-        return SimpleNamespace(episode=SimpleNamespace(uuid="ep-1"))
+        job = SimpleNamespace(uuid_="ep-1", uuid="ep-1", status="processing", processed=False)
+        enqueued.append(job)
+        return job
 
-    monkeypatch.setattr(client, "_add_episode", fake_add)
+    monkeypatch.setattr(client, "_enqueue_episode", fake_enqueue)
     episode = client.graph.add(
         graph_id="g1",
         type="text",
@@ -330,7 +334,9 @@ def test_graph_add_builds_episode(monkeypatch, tmp_path):
         source_description="sim batch",
         metadata={"platform": "twitter"},
     )
-    assert episode.uuid_ == "ep-1"
+    # Zep semantics: uuid handed back immediately, processing is background
+    assert episode.uuid_ == "ep-1" and episode.processed is False
+    assert len(enqueued) == 1
     assert captured["graph_id"] == "g1"
     assert captured["body"] == "agent posted"
     assert captured["reference_time"].tzinfo is not None
@@ -616,3 +622,154 @@ def test_all_operations_share_one_event_loop(monkeypatch, tmp_path):
     assert len(set(loops)) == 1, "operations ran on multiple event loops"
     assert client._loop is not None
     assert all(l is client._loop for l in loops)
+
+
+# ── async ingestion (updater path) ──────────────────────────────────
+
+def _async_setup(monkeypatch, tmp_path):
+    """Client with fake graphiti + fake EpisodicNode; worker start gated."""
+    import app.memory.graphiti_client as module
+
+    client, _ = make_client(monkeypatch, tmp_path)
+    saved = []
+
+    class _FakeEpi:
+        @classmethod
+        async def get_by_uuid(cls, driver, uuid):
+            for u in saved:
+                if u == uuid:
+                    return SimpleNamespace(uuid=uuid, name="n", content="c")
+            return None
+
+    monkeypatch.setattr(module, "EpisodicNode", _FakeEpi)
+    return client, saved
+
+
+def test_graph_add_returns_immediately_and_processes_in_background(monkeypatch, tmp_path):
+    import asyncio as _asyncio
+
+    client, saved = _async_setup(monkeypatch, tmp_path)
+
+    async def fake_add(**kwargs):
+        await _asyncio.sleep(0.3)
+        saved.append(kwargs["uuid"])
+        return SimpleNamespace(episode=SimpleNamespace(uuid=kwargs["uuid"]))
+
+    monkeypatch.setattr(client, "_graphiti", SimpleNamespace(add_episode=fake_add))
+
+    started = time.time()
+    ns = client.graph.add(
+        graph_id="g1", data="agent posted", created_at="2026-11-08T00:00:00Z",
+        source_description="sim batch", metadata={"platform": "twitter"},
+    )
+    elapsed = time.time() - started
+    assert elapsed < 1.0, "graph.add must return immediately (Zep semantics)"
+    assert ns.uuid_ and ns.processed is False
+
+    pending_ep = client.graph.episode.get(uuid_=ns.uuid_)
+    assert pending_ep.processed is False  # still processing
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        ep = client.graph.episode.get(uuid_=ns.uuid_)
+        if ep.processed:
+            break
+        time.sleep(0.05)
+    assert ep.processed is True
+    assert saved[0] == ns.uuid_, "pre-assigned uuid must be the saved uuid"
+
+
+def test_bulk_grouping_uses_combined_extraction(monkeypatch, tmp_path):
+    import asyncio as _asyncio
+
+    client, saved = _async_setup(monkeypatch, tmp_path)
+    bulk_calls = []
+
+    async def fake_bulk(**kwargs):
+        bulk_calls.append(kwargs)
+        for r in kwargs["bulk_episodes"]:
+            saved.append(r.uuid)
+        return SimpleNamespace(episodes=[])
+
+    monkeypatch.setattr(client, "_graphiti", SimpleNamespace(add_episode_bulk=fake_bulk))
+    # enqueue everything before the worker starts -> deterministic grouping
+    real_ensure = client._ensure_ingest_worker
+    monkeypatch.setattr(client, "_ensure_ingest_worker", lambda: None)
+
+    uuids = [
+        client.graph.add(graph_id="g1", data=f"chunk {i}", created_at=None,
+                         source_description="sim", metadata={}).uuid_
+        for i in range(4)
+    ]
+    real_ensure()
+
+    deadline = time.time() + 5
+    while time.time() < deadline and len(saved) < 4:
+        time.sleep(0.05)
+    assert len(bulk_calls) == 1, f"expected one combined bulk call, got {len(bulk_calls)}"
+    raws = bulk_calls[0]["bulk_episodes"]
+    assert len(raws) == 4
+    assert bulk_calls[0]["use_combined_extraction"] is True
+    assert {r.uuid for r in raws} == set(uuids)
+
+
+def test_failed_ingestion_is_terminal_after_one_retry(monkeypatch, tmp_path):
+    client, _ = _async_setup(monkeypatch, tmp_path)
+    attempts = {"n": 0}
+
+    async def fake_add(**kwargs):
+        attempts["n"] += 1
+        raise RuntimeError("extraction exploded")
+
+    monkeypatch.setattr(client, "_graphiti", SimpleNamespace(add_episode=fake_add))
+
+    ns = client.graph.add(graph_id="g1", data="x", created_at=None,
+                          source_description="sim", metadata={})
+    deadline = time.time() + 5
+    ep = None
+    while time.time() < deadline:
+        ep = client.graph.episode.get(uuid_=ns.uuid_)
+        if ep.processed:
+            break
+        time.sleep(0.05)
+    assert attempts["n"] == 2, "one retry expected"
+    assert ep.status == "failed" and ep.processed is True
+
+
+def test_single_jobs_chain_previous_episode(monkeypatch, tmp_path):
+    import asyncio as _asyncio
+    import threading
+
+    client, saved = _async_setup(monkeypatch, tmp_path)
+    gate = threading.Event()
+    calls = []
+
+    async def fake_add(**kwargs):
+        calls.append(kwargs)
+        gate.wait(timeout=10)  # hold the worker so enqueues serialize deterministically
+        saved.append(kwargs["uuid"])
+        return SimpleNamespace(episode=SimpleNamespace(uuid=kwargs["uuid"]))
+
+    monkeypatch.setattr(client, "_graphiti", SimpleNamespace(add_episode=fake_add))
+    real_ensure = client._ensure_ingest_worker
+    monkeypatch.setattr(client, "_ensure_ingest_worker", lambda: None)
+
+    ns1 = client.graph.add(graph_id="g1", data="one", created_at=None, source_description="s", metadata={})
+    real_ensure()
+    deadline = time.time() + 5
+    while time.time() < deadline and not calls:
+        time.sleep(0.05)
+    assert len(calls) == 1
+    gate.set()
+
+    while time.time() < deadline and client._episode_status.get(ns1.uuid_) != "done":
+        time.sleep(0.05)
+
+    ns2 = client.graph.add(graph_id="g1", data="two", created_at=None, source_description="s", metadata={})
+    gate.clear()
+    deadline2 = time.time() + 5
+    while time.time() < deadline2 and len(calls) < 2:
+        time.sleep(0.05)
+    assert len(calls) == 2
+    gate.set()
+    assert calls[1]["previous_episode_uuids"] == [ns1.uuid_]

@@ -24,7 +24,11 @@ import asyncio
 import json
 import logging
 import os
+import queue
 import threading
+import time
+from collections import OrderedDict
+from uuid import uuid4
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
@@ -47,6 +51,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_EMBEDDER_MODEL = "text-embedding-3-small"
 
 
+def _provenance_description(source_description: str, metadata: Dict[str, Any]) -> str:
+    if not metadata:
+        return source_description
+    return (
+        f"{source_description} | "
+        f"metadata={json.dumps(metadata, ensure_ascii=False)}"
+    )
+
+
 def _not_found(message: str) -> NotFoundError:
     return NotFoundError(body={"message": message})
 
@@ -55,6 +68,26 @@ def _not_found(message: str) -> NotFoundError:
 # by add_episode for typed extraction (labels drive entity-type filtering).
 _ENTITY_TYPE_REGISTRY: Dict[str, Dict[str, Any]] = {}
 _EDGE_TYPE_REGISTRY: Dict[str, Dict[str, Any]] = {}
+
+# Async ingestion (updater path): graph.add returns immediately with a
+# generated episode uuid, like Zep Cloud's server-side queueing; a daemon
+# worker drains the queue, grouping episodes per graph into combined bulk
+# extraction. Status registry feeds the processed flag on episode.get.
+_INGEST_BULK_MAX = 8
+_EPISODE_STATUS_CAP = 5000
+
+
+class _IngestionJob:
+    __slots__ = ("graph_id", "uuid", "name", "body", "source_description", "reference_time", "metadata")
+
+    def __init__(self, graph_id, uuid, name, body, source_description, reference_time, metadata):
+        self.graph_id = graph_id
+        self.uuid = uuid
+        self.name = name
+        self.body = body
+        self.source_description = source_description
+        self.reference_time = reference_time
+        self.metadata = metadata
 
 
 def _safe_ontology_schema(item: Any) -> Any:
@@ -189,18 +222,31 @@ class _EpisodeNamespace:
         self._owner = owner
 
     def get(self, uuid_: str) -> Any:
+        job_status = self._owner._episode_status.get(uuid_)
+        if job_status == "pending":
+            # background ingestion has not finished this episode yet
+            return SimpleNamespace(
+                uuid_=uuid_, uuid=uuid_, name="", content="",
+                status="processing", processed=False,
+            )
         episode = self._owner._run_optional(
             EpisodicNode.get_by_uuid(driver=self._owner._driver, uuid=uuid_)
         )
         if episode is None:
+            if job_status == "failed":
+                # terminal: drain must complete; the error was logged loudly
+                return SimpleNamespace(
+                    uuid_=uuid_, uuid=uuid_, name="", content="",
+                    status="failed", processed=True,
+                )
             raise _not_found(f"episode {uuid_} not found")
         return SimpleNamespace(
             uuid_=episode.uuid,
             uuid=episode.uuid,
             name=getattr(episode, "name", "") or "",
             content=getattr(episode, "content", "") or "",
-            status="ready",  # synchronous backend: ingestion is complete
-            processed=True,  # graph_builder and the updater poll this flag
+            status="ready",
+            processed=True,
         )
 
 
@@ -411,19 +457,16 @@ class _GraphNamespace:
         metadata: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> Any:
-        results = self._owner._add_episode(
+        # Zep semantics: the server queues the episode and returns its uuid
+        # immediately; processing happens in the background. Mirror that so
+        # the updater's send loop and drain behave exactly as designed.
+        return self._owner._enqueue_episode(
             graph_id=graph_id,
             name=kwargs.get("name") or f"episode-{datetime.now(timezone.utc).timestamp()}",
             body=data,
             source_description=source_description,
             reference_time=_parse_rfc3339(created_at),
             metadata=metadata or {},
-        )
-        episode = results.episode if results else None
-        return SimpleNamespace(
-            uuid_=getattr(episode, "uuid", None),
-            uuid=getattr(episode, "uuid", None),
-            status="ready",
         )
 
     def search(
@@ -472,6 +515,10 @@ class GraphitiCompatClient:
         self._loop_thread: Optional[threading.Thread] = None
         self._graphiti_impl = None
         self._driver_impl = None
+        self._ingest_queue: "queue.Queue[_IngestionJob]" = queue.Queue()
+        self._ingest_thread: Optional[threading.Thread] = None
+        self._episode_status: "OrderedDict[str, str]" = OrderedDict()
+        self._last_episode_uuid: Dict[str, str] = {}
         self._meta_lock = threading.Lock()
         self._batches: Dict[str, Dict[str, Any]] = {}
         self.graph = _GraphNamespace(self)
@@ -700,6 +747,134 @@ class GraphitiCompatClient:
         self._run(EntityNode.delete_by_group_id(driver=self._driver, group_id=graph_id))
         self._run(EpisodicNode.delete_by_group_id(driver=self._driver, group_id=graph_id))
 
+    # ── async ingestion (updater path) ────────────────────────────────
+
+    def _enqueue_episode(
+        self,
+        graph_id: str,
+        name: str,
+        body: str,
+        source_description: str,
+        reference_time: datetime,
+        metadata: Dict[str, Any],
+    ) -> Any:
+        """Queue an episode for background ingestion; return its uuid now."""
+        self._ensure_graphiti()
+        job_uuid = uuid4().hex
+        self._episode_status[job_uuid] = "pending"
+        self._episode_status.move_to_end(job_uuid)
+        self._trim_episode_status()
+        self._ingest_queue.put(
+            _IngestionJob(graph_id, job_uuid, name, body, source_description, reference_time, metadata)
+        )
+        self._ensure_ingest_worker()
+        return SimpleNamespace(
+            uuid_=job_uuid, uuid=job_uuid, status="processing", processed=False,
+        )
+
+    def _ensure_ingest_worker(self) -> None:
+        if self._ingest_thread is not None:
+            return
+        self._ingest_thread = threading.Thread(
+            target=self._ingest_worker_main,
+            daemon=True,
+            name="reef-ingest",
+        )
+        self._ingest_thread.start()
+
+    def _trim_episode_status(self) -> None:
+        while len(self._episode_status) > _EPISODE_STATUS_CAP:
+            oldest_uuid, oldest_status = next(iter(self._episode_status.items()))
+            if oldest_status == "pending":
+                break  # never evict an in-flight marker
+            self._episode_status.pop(oldest_uuid)
+
+    def _ingest_worker_main(self) -> None:
+        while True:
+            first = self._ingest_queue.get()
+            jobs = [first]
+            while len(jobs) < _INGEST_BULK_MAX:
+                try:
+                    jobs.append(self._ingest_queue.get_nowait())
+                except queue.Empty:
+                    break
+            by_graph: "OrderedDict[str, List[_IngestionJob]]" = OrderedDict()
+            for job in jobs:
+                by_graph.setdefault(job.graph_id, []).append(job)
+            for graph_id, group in by_graph.items():
+                try:
+                    self._ingest_group(graph_id, group)
+                except Exception:
+                    logger.exception(
+                        "ReefMemory: background ingestion failed for %d episode(s) on %s; retrying once",
+                        len(group), graph_id,
+                    )
+                    try:
+                        self._ingest_group(graph_id, group)
+                    except Exception:
+                        logger.exception(
+                            "ReefMemory: background ingestion FAILED PERMANENTLY for %d episode(s) on %s",
+                            len(group), graph_id,
+                        )
+                        for job in group:
+                            self._episode_status[job.uuid] = "failed"
+                            self._episode_status.move_to_end(job.uuid)
+
+    def _ingest_group(self, graph_id: str, jobs: List[_IngestionJob]) -> None:
+        from graphiti_core.nodes import EpisodeType
+
+        entity_types = _ENTITY_TYPE_REGISTRY.get(graph_id)
+        edge_types = _EDGE_TYPE_REGISTRY.get(graph_id)
+        previous = self._last_episode_uuid.get(graph_id)
+
+        if len(jobs) == 1:
+            job = jobs[0]
+            kwargs: Dict[str, Any] = dict(
+                name=job.name,
+                episode_body=job.body,
+                source_description=_provenance_description(job.source_description, job.metadata),
+                reference_time=job.reference_time,
+                source=EpisodeType.message,
+                group_id=graph_id,
+                uuid=job.uuid,
+            )
+            if entity_types:
+                kwargs["entity_types"] = entity_types
+            if edge_types:
+                kwargs["edge_types"] = edge_types
+            if previous:
+                kwargs["previous_episode_uuids"] = [previous]
+            self._run(self._graphiti.add_episode(**kwargs))
+        else:
+            from graphiti_core.utils.bulk_utils import RawEpisode
+
+            raws = [
+                RawEpisode(
+                    name=job.name,
+                    uuid=job.uuid,
+                    content=job.body,
+                    source_description=_provenance_description(job.source_description, job.metadata),
+                    source=EpisodeType.message,
+                    reference_time=job.reference_time,
+                )
+                for job in jobs
+            ]
+            kwargs = dict(
+                bulk_episodes=raws,
+                group_id=graph_id,
+                use_combined_extraction=True,
+            )
+            if entity_types:
+                kwargs["entity_types"] = entity_types
+            if edge_types:
+                kwargs["edge_types"] = edge_types
+            self._run(self._graphiti.add_episode_bulk(**kwargs))
+
+        for job in jobs:
+            self._episode_status[job.uuid] = "done"
+            self._episode_status.move_to_end(job.uuid)
+        self._last_episode_uuid[graph_id] = jobs[-1].uuid
+
     def _add_episode(
         self,
         graph_id: str,
@@ -714,12 +889,7 @@ class GraphitiCompatClient:
         # graphiti-core's add_episode has no metadata parameter (verified
         # against the installed signature); provenance rides inside the
         # stored source_description so it survives any graphiti version.
-        description = source_description
-        if metadata:
-            description = (
-                f"{source_description} | "
-                f"metadata={json.dumps(metadata, ensure_ascii=False)}"
-            )
+        description = _provenance_description(source_description, metadata)
 
         kwargs: Dict[str, Any] = dict(
             name=name,

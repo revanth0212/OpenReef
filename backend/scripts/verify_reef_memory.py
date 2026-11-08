@@ -125,6 +125,35 @@ def main():
     check("_wait_for_batch terminal + item validation", len(wait_result) == len(chunks),
           f"items={len(wait_result)}")
 
+    step("async ingestion (updater path: graph.add returns immediately)")
+    ns1 = service.client.graph.add(
+        graph_id=graph_id,
+        data="Carol joined Acme Labs as a compliance officer and reports to Alice.",
+        created_at="2026-11-08T00:10:00Z",
+        source_description="MiroFish simulation activity batch",
+        metadata={"source": "verify", "platform": "twitter"},
+    )
+    ns2 = service.client.graph.add(
+        graph_id=graph_id,
+        data="Acme Labs opened a Singapore branch with Carol as its first hire.",
+        created_at="2026-11-08T00:11:00Z",
+        source_description="MiroFish simulation activity batch",
+        metadata={"source": "verify", "platform": "reddit"},
+    )
+    check("graph.add returned uuids immediately", bool(ns1.uuid_) and bool(ns2.uuid_))
+
+    pending = {ns1.uuid_, ns2.uuid_}
+    deadline = time.time() + 240
+    while pending and time.time() < deadline:
+        for uuid_ in list(pending):
+            if getattr(service.client.graph.episode.get(uuid_=uuid_), "processed", False):
+                pending.remove(uuid_)
+        if pending:
+            time.sleep(3)
+            print(f"    async pending: {len(pending)}", flush=True)
+    check("async episodes processed (processed poll is real)", not pending,
+          f"pending={len(pending)}")
+
     step("graph statistics + entity reads")
     info = service.client.graph.get(graph_id)
     check("nodes extracted", info.node_count >= 3, f"nodes={info.node_count}")

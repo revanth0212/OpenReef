@@ -77,6 +77,20 @@ REEF_MEMORY_EMBEDDER_DIM=768
 #MEMORY_BACKEND=zep            # only if you explicitly want Zep Cloud
 ```
 
+## Ingestion behavior
+
+Two paths, mirroring how MiroFish used Zep:
+
+- **Graph build** (`batch.add`) is synchronous end-to-end: chunk extraction
+  completes before the batch reports `succeeded`, so the build's
+  `_wait_for_batch` finishes in one poll tick.
+- **Simulation activity** (`graph.add`, the updater path) is **asynchronous**
+  like Zep Cloud: `add` returns a pre-assigned episode uuid immediately, a
+  daemon worker drains the queue, groups same-graph episodes into combined
+  bulk extraction (`use_combined_extraction`, up to 8 per call), and the
+  updater's drain polls the real `processed` flag. Failed episodes retry
+  once, then go terminal-failed (logged loudly) so a drain can never wedge.
+
 ## Current limitations (v1)
 
 - **Ontology types are stored, not yet enforced.** The generated ontology
