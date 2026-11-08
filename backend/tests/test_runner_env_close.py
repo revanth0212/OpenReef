@@ -66,3 +66,55 @@ def test_check_all_platforms_completed_needs_an_enabled_platform(tmp_path, monke
 
     state.twitter_completed = True
     assert SimulationRunner._check_all_platforms_completed(state) is True
+
+
+def test_monitor_requests_close_on_natural_completion(tmp_path, monkeypatch):
+    """Exercise the real monitor loop: platforms complete -> close_env sent
+    with the correct sim dir. Regression net for the sim_dir wiring."""
+    from app.services import simulation_runner as runner_module
+
+    sim_id = "sim-auto-close"
+    sim_dir = tmp_path / sim_id
+    (sim_dir / "twitter").mkdir(parents=True)
+    (sim_dir / "reddit").mkdir(parents=True)
+    (sim_dir / "twitter" / "actions.jsonl").write_text("", encoding="utf-8")
+    (sim_dir / "reddit" / "actions.jsonl").write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(SimulationRunner, "RUN_STATE_DIR", str(tmp_path))
+
+    state = SimpleNamespace(
+        simulation_id=sim_id,
+        twitter_completed=True,
+        reddit_completed=True,
+    )
+
+    class _FakeProcess:
+        _calls = {"poll": 0}
+
+        def poll(self):
+            self._calls["poll"] += 1
+            return None if self._calls["poll"] == 1 else 0
+
+        returncode = 0
+
+    SimulationRunner._processes[sim_id] = _FakeProcess()
+
+    monkeypatch.setattr(SimulationRunner, "get_run_state", lambda _sid: state)
+    monkeypatch.setattr(SimulationRunner, "_save_run_state", lambda _s: None)
+    monkeypatch.setattr(SimulationRunner, "_read_action_log", lambda *a, **k: 0)
+
+    close_calls = []
+    monkeypatch.setattr(
+        SimulationRunner,
+        "_request_env_close",
+        lambda sdir, sid: close_calls.append((sdir, sid)),
+    )
+    monkeypatch.setattr(runner_module.time, "sleep", lambda _s: None)
+
+    try:
+        SimulationRunner._monitor_simulation(sim_id)
+    except Exception:
+        pass  # deep finalization beyond the close trigger is out of scope
+
+    assert close_calls == [(str(sim_dir), sim_id)], close_calls
+    SimulationRunner._processes.pop(sim_id, None)

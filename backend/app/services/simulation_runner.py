@@ -675,7 +675,7 @@ class SimulationRunner:
                     and cls._check_all_platforms_completed(state)
                 ):
                     close_env_requested = True
-                    cls._request_env_close(simulation_dir, state.simulation_id)
+                    cls._request_env_close(sim_dir, state.simulation_id)
 
                 time.sleep(2)
             
