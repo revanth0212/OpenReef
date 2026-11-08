@@ -346,13 +346,49 @@ def test_batch_add_processes_items_sequentially(monkeypatch, tmp_path):
         return SimpleNamespace(episode=SimpleNamespace(uuid=f"ep-{len(calls)}"))
 
     monkeypatch.setattr(client, "_add_episode", fake_add)
+    created = client.batch.create(metadata={"graph_id": "g1", "chunk_count": 3})
     items = [
         SimpleNamespace(graph_id="g1", data=f"chunk {i}", source_description="doc", metadata={"i": i})
         for i in range(3)
     ]
-    details = client.batch.add("batch-1", items)
+    details = client.batch.add(created.batch_id, items)
     assert calls == ["chunk 0", "chunk 1", "chunk 2"]
     assert [d.sequence_index for d in details] == [0, 1, 2]
+    assert all(d.episode_uuid for d in details)
+
+
+def test_batch_full_lifecycle(monkeypatch, tmp_path):
+    client, _ = make_client(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        client, "_add_episode",
+        lambda **kwargs: SimpleNamespace(episode=SimpleNamespace(uuid="ep-x")),
+    )
+
+    created = client.batch.create(metadata={"mirofish_operation_id": "op-1", "graph_id": "g1"})
+    assert created.status == "draft" and created.batch_id
+
+    summary = client.batch.get(created.batch_id)
+    assert summary.status == "draft"
+    assert summary.metadata["mirofish_operation_id"] == "op-1"
+
+    client.batch.add(created.batch_id, [SimpleNamespace(graph_id="g1", data="x")])
+    processed = client.batch.process(created.batch_id)
+    assert processed.status == "processed"
+    assert client.batch.get(created.batch_id).status == "processed"
+
+    # reconciliation shapes used by graph_builder
+    page = client.batch.list(limit=100)
+    assert page.next_cursor is None
+    assert any(b.batch_id == created.batch_id and b.metadata.get("mirofish_operation_id") == "op-1" for b in page.batches)
+    items = client.batch.list_items(created.batch_id)
+    assert len(items) == 1 and items[0].episode_uuid == "ep-x"
+
+
+def test_batch_add_to_missing_batch_raises_404(monkeypatch, tmp_path):
+    client, _ = make_client(monkeypatch, tmp_path)
+    with pytest.raises(Exception) as exc_info:
+        client.batch.add("batch-nope", [])
+    assert getattr(exc_info.value, "status_code", None) == 404
 
 
 def test_episode_get_missing_raises_404(monkeypatch, tmp_path):

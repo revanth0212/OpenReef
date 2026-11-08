@@ -190,33 +190,83 @@ class _EdgeNamespace:
 
 
 class _BatchNamespace:
+    """In-memory stand-in for Zep's async Batch API.
+
+    The native backend ingests synchronously, so: create registers a draft,
+    add() ingests episodes immediately, process() flips the batch to
+    'processed'. Records live for the process lifetime (batch builds are
+    single-shot), which is enough for graph_builder's reconciliation paths.
+    """
+
     def __init__(self, owner: "GraphitiCompatClient"):
         self._owner = owner
 
+    def create(self, metadata: Optional[Dict[str, Any]] = None) -> Any:
+        from uuid import uuid4
+
+        batch_id = f"batch-{uuid4().hex}"
+        self._owner._batches[batch_id] = {
+            "metadata": dict(metadata or {}),
+            "items": [],
+            "status": "draft",
+        }
+        return SimpleNamespace(batch_id=batch_id, status="draft", metadata=dict(metadata or {}))
+
     def add(self, batch_id: str, items: List[Any]) -> List[Any]:
-        """Process BatchAddItem entries (graph_episode type) sequentially."""
+        record = self._owner._batches.get(batch_id)
+        if record is None:
+            raise _not_found(f"batch {batch_id} not found")
         details = []
         for index, item in enumerate(items):
-            graph_id = getattr(item, "graph_id", None)
-            data = getattr(item, "data", "")
-            source_description = getattr(item, "source_description", "MiroFish batch item")
-            metadata = getattr(item, "metadata", None) or {}
             results = self._owner._add_episode(
-                graph_id=graph_id,
-                name=f"{batch_id}-{index}",
-                body=str(data),
-                source_description=source_description,
+                graph_id=getattr(item, "graph_id", None),
+                name=f"{batch_id}-{len(record['items']) + index}",
+                body=str(getattr(item, "data", "")),
+                source_description=getattr(item, "source_description", "MiroFish batch item"),
                 reference_time=datetime.now(timezone.utc),
-                metadata=metadata,
+                metadata=getattr(item, "metadata", None) or {},
             )
+            episode_uuid = getattr(results.episode, "uuid", None) if results else None
             details.append(
                 SimpleNamespace(
                     sequence_index=index,
-                    uuid=getattr(results.episode, "uuid", None) if results else None,
+                    uuid=episode_uuid,
+                    episode_uuid=episode_uuid,
                     status="ok",
                 )
             )
+        record["items"].extend(details)
         return details
+
+    def process(self, batch_id: str) -> Any:
+        record = self._owner._batches.get(batch_id)
+        if record is None:
+            raise _not_found(f"batch {batch_id} not found")
+        record["status"] = "processed"
+        return SimpleNamespace(batch_id=batch_id, status="processed")
+
+    def get(self, batch_id: str) -> Any:
+        record = self._owner._batches.get(batch_id)
+        if record is None:
+            raise _not_found(f"batch {batch_id} not found")
+        return SimpleNamespace(
+            batch_id=batch_id,
+            status=record["status"],
+            metadata=record["metadata"],
+        )
+
+    def list(self, limit: int = 100, cursor: Any = None) -> Any:
+        all_ids = sorted(self._owner._batches)
+        start = int(cursor or 0)
+        page = [self.get(batch_id) for batch_id in all_ids[start:start + limit]]
+        next_cursor = start + limit if start + limit < len(all_ids) else None
+        return SimpleNamespace(batches=page, next_cursor=next_cursor)
+
+    def list_items(self, batch_id: str, limit: int = 100, cursor: Any = None) -> List[Any]:
+        record = self._owner._batches.get(batch_id)
+        if record is None:
+            raise _not_found(f"batch {batch_id} not found")
+        return list(record["items"])
 
 
 class _GraphNamespace:
@@ -349,6 +399,7 @@ class GraphitiCompatClient:
         self._graphiti = None
         self._driver = None
         self._meta_lock = threading.Lock()
+        self._batches: Dict[str, Dict[str, Any]] = {}
         self.graph = _GraphNamespace(self)
         self.batch = _BatchNamespace(self)
 
