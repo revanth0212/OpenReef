@@ -248,10 +248,12 @@ def test_set_ontology_accepts_pydantic_model_classes(monkeypatch, tmp_path):
     )
     meta = json.loads((tmp_path / "graphs.json").read_text(encoding="utf-8"))
     entities = meta["g1"]["ontology"]["entities"]
-    assert entities["PersonEntity"]["description"] == "A person"
+    schema = entities["PersonEntity"]
+    assert schema["title"] == "PersonEntity"
+    assert schema["properties"]["description"]["default"] == "A person"
     edge = meta["g1"]["ontology"]["edges"]["WORKS_FOR"]
-    assert edge["model"]["description"] == "employment"
-    assert edge["between"] == ["('PersonEntity', 'OrganizationEntity')"] or "PersonEntity" in str(edge["between"])
+    assert edge["model"]["title"] == "WorksFor"
+    assert "PersonEntity" in edge["between"][0]
 
 
 def test_set_ontology_never_crashes_on_odd_entries(monkeypatch, tmp_path):
