@@ -51,6 +51,12 @@ def _not_found(message: str) -> NotFoundError:
     return NotFoundError(body={"message": message})
 
 
+# Live ontology classes per graph, registered by set_ontology and consumed
+# by add_episode for typed extraction (labels drive entity-type filtering).
+_ENTITY_TYPE_REGISTRY: Dict[str, Dict[str, Any]] = {}
+_EDGE_TYPE_REGISTRY: Dict[str, Dict[str, Any]] = {}
+
+
 def _safe_ontology_schema(item: Any) -> Any:
     """Best-effort JSON snapshot of an ontology entry (stored, not enforced).
 
@@ -124,6 +130,37 @@ def _node_to_ns(node: Any) -> Any:
         created_at=getattr(node, "created_at", None),
         group_id=getattr(node, "group_id", None),
     )
+
+
+KUZU_FTS_INDEX_STATEMENTS = [
+    "CALL CREATE_FTS_INDEX('Episodic', 'episode_content', ['content', 'source', 'source_description']);",
+    "CALL CREATE_FTS_INDEX('Entity', 'node_name_and_summary', ['name', 'summary']);",
+    "CALL CREATE_FTS_INDEX('Community', 'community_name', ['name']);",
+    "CALL CREATE_FTS_INDEX('RelatesToNode_', 'edge_name_and_fact', ['name', 'fact']);",
+]
+
+
+def _ensure_kuzu_fts_indexes(driver: Any) -> None:
+    """Create the fulltext indexes graphiti's search queries reference.
+
+    The deprecated KuzuDriver no-ops build_indices_and_constraints (its
+    comment predates kuzu FTS support), but graphiti's kuzu search queries
+    use CALL QUERY_FTS_INDEX against these names — without them every
+    search dies in the kuzu binder. Idempotent across restarts: an error
+    naming the index means it already exists.
+    """
+
+    async def _create(sql: str) -> None:
+        await driver.execute_query(sql)
+
+    for sql in KUZU_FTS_INDEX_STATEMENTS:
+        index_name = sql.split("'")[3]
+        try:
+            asyncio.run(_create(sql))
+        except Exception as exc:
+            if index_name in str(exc):
+                continue  # already exists
+            raise
 
 
 def _patch_kuzu_driver_for_graphiti(driver: Any) -> Any:
@@ -335,6 +372,14 @@ class _GraphNamespace:
         entities: Optional[Dict[str, Any]] = None,
         edges: Optional[Dict[str, Any]] = None,
     ) -> Any:
+        for graph_id in graph_ids or []:
+            if entities:
+                _ENTITY_TYPE_REGISTRY[graph_id] = dict(entities)
+            if edges:
+                _EDGE_TYPE_REGISTRY[graph_id] = {
+                    name: item[0] for name, item in edges.items()
+                    if isinstance(item, tuple) and item
+                }
         meta = self._owner._load_meta()
         for graph_id in graph_ids or []:
             entry = meta.setdefault(graph_id, {"name": graph_id, "created_at": datetime.now(timezone.utc).isoformat()})
@@ -412,12 +457,35 @@ class GraphitiCompatClient:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._graphiti = None
-        self._driver = None
+        self._graphiti_impl = None
+        self._driver_impl = None
         self._meta_lock = threading.Lock()
         self._batches: Dict[str, Dict[str, Any]] = {}
         self.graph = _GraphNamespace(self)
         self.batch = _BatchNamespace(self)
+
+    # Lazy properties: coroutine arguments capture `self._driver` at call
+    # time, so initialization must happen on ATTRIBUTE ACCESS, not inside
+    # _run (a read-before-first-write captured None and crashed graphiti).
+    @property
+    def _graphiti(self) -> Any:
+        if self._graphiti_impl is None:
+            self._ensure_graphiti()
+        return self._graphiti_impl
+
+    @_graphiti.setter
+    def _graphiti(self, value: Any) -> None:
+        self._graphiti_impl = value
+
+    @property
+    def _driver(self) -> Any:
+        if self._driver_impl is None:
+            self._ensure_graphiti()
+        return self._driver_impl
+
+    @_driver.setter
+    def _driver(self, value: Any) -> None:
+        self._driver_impl = value
 
     # ── internal plumbing ────────────────────────────────────────────
 
@@ -528,7 +596,7 @@ class GraphitiCompatClient:
             ) from error
 
     def _ensure_graphiti(self) -> None:
-        if self._graphiti is not None:
+        if self._graphiti_impl is not None:
             return
         from graphiti_core import Graphiti
         from graphiti_core.cross_encoder.client import CrossEncoderClient
@@ -555,6 +623,7 @@ class GraphitiCompatClient:
         driver = _patch_kuzu_driver_for_graphiti(
             KuzuDriver(db=os.path.join(self._db_dir, "kuzu.db"))
         )
+        _ensure_kuzu_fts_indexes(driver)
         llm_client = OpenAIClient(
             LLMConfig(
                 api_key=head.api_key or "missing",
@@ -608,8 +677,6 @@ class GraphitiCompatClient:
     ) -> Any:
         from graphiti_core.nodes import EpisodeType
 
-        self._ensure_graphiti()
-
         # graphiti-core's add_episode has no metadata parameter (verified
         # against the installed signature); provenance rides inside the
         # stored source_description so it survives any graphiti version.
@@ -620,13 +687,19 @@ class GraphitiCompatClient:
                 f"metadata={json.dumps(metadata, ensure_ascii=False)}"
             )
 
-        return self._run(
-            self._graphiti.add_episode(
-                name=name,
-                episode_body=body,
-                source=EpisodeType.message,
-                source_description=description,
-                reference_time=reference_time,
-                group_id=graph_id,
-            )
+        kwargs: Dict[str, Any] = dict(
+            name=name,
+            episode_body=body,
+            source=EpisodeType.message,
+            source_description=description,
+            reference_time=reference_time,
+            group_id=graph_id,
         )
+        entity_types = _ENTITY_TYPE_REGISTRY.get(graph_id)
+        if entity_types:
+            kwargs["entity_types"] = entity_types
+        edge_types = _EDGE_TYPE_REGISTRY.get(graph_id)
+        if edge_types:
+            kwargs["edge_types"] = edge_types
+
+        return self._run(self._graphiti.add_episode(**kwargs))

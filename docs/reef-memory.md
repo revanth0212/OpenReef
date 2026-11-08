@@ -94,6 +94,16 @@ REEF_MEMORY_EMBEDDER_DIM=768
 
 - `backend/tests/test_reef_memory.py` — mapping, lifecycle, backend
   selection, and a real embedded-Kuzu lifecycle test (no network).
+- `backend/tests/test_memory_contract.py` — walks all backend sources and
+  fails if any call-site method is missing from the compat client.
+- **Real end-to-end verification** (no mocks — real Graphiti, Kuzu, and
+  your configured providers; cents of LLM cost):
+  ```bash
+  cd backend && uv run python scripts/verify_reef_memory.py
+  ```
+  Drives the exact service layer the app uses: graph create → set_ontology
+  → batch ingestion → entity reads → search (embeddings) → delete.
+  Run this before asking anyone to test in a container.
 - Container smoke: run a normal simulation with no `ZEP_API_KEY` in
   `.env` — graph build, agent memory, report search, and the graph panel
   should all work; `uploads/reef-memory/` appears on the host.
