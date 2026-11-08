@@ -643,6 +643,7 @@ class SimulationRunner:
         
         monitor_error: Exception | None = None
         exit_code: int | None = None
+        close_env_requested = False
         try:
             while process.poll() is None:  # 进程仍在运行
                 # 读取 Twitter 动作日志
@@ -650,15 +651,32 @@ class SimulationRunner:
                     twitter_position = cls._read_action_log(
                         twitter_actions_log, twitter_position, state, "twitter"
                     )
-                
+
                 # 读取 Reddit 动作日志
                 if os.path.exists(reddit_actions_log):
                     reddit_position = cls._read_action_log(
                         reddit_actions_log, reddit_position, state, "reddit"
                     )
-                
+
                 # 更新状态
                 cls._save_run_state(state)
+
+                # OpenReef: the OASIS process parks in wait-for-commands
+                # mode after its rounds unless it receives a close_env
+                # command (interviews keep working while it runs). Upstream
+                # never sends one, so natural completion never publishes a
+                # terminal status — the monitor would wait forever. Request
+                # the close exactly once when all platforms have finished.
+                # The "some platform completed" guard prevents firing in the
+                # first loop ticks, before any platform log exists yet.
+                if (
+                    not close_env_requested
+                    and (state.twitter_completed or state.reddit_completed)
+                    and cls._check_all_platforms_completed(state)
+                ):
+                    close_env_requested = True
+                    cls._request_env_close(simulation_dir, state.simulation_id)
+
                 time.sleep(2)
             
             # 进程结束后，最后读取一次日志
@@ -884,6 +902,24 @@ class SimulationRunner:
             logger.warning(f"读取动作日志失败: {log_path}, error={e}")
             return position
     
+    @classmethod
+    def _request_env_close(cls, simulation_dir: str, simulation_id: str) -> None:
+        """Ask the (rounds-finished) OASIS process to shut down via IPC.
+
+        Failures are non-fatal: the monitor keeps waiting for the process
+        to exit, and the user can still stop it manually.
+        """
+        try:
+            from .simulation_ipc import SimulationIPCClient
+            logger.info(f"所有平台已完成，发送关闭环境命令: {simulation_id}")
+            response = SimulationIPCClient(simulation_dir).send_close_env(timeout=30)
+            if not getattr(response, "success", False):
+                logger.warning(
+                    f"关闭环境命令未被确认: {simulation_id}: {getattr(response, 'error', 'unknown')}"
+                )
+        except Exception as error:
+            logger.warning(f"发送关闭环境命令失败（将继续等待进程退出）: {simulation_id}: {error}")
+
     @classmethod
     def _check_all_platforms_completed(cls, state: SimulationRunState) -> bool:
         """
