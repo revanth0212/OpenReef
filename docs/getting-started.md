@@ -83,5 +83,8 @@ models, and limitations.
 - **Report/simulation quality** — the default model matters. Small local
   models work for short runs; ontology extraction benefits from a capable
   model. Use `llm.config.json` to route heavy stages to stronger models.
+- **It behaves like old code** (mentions features you removed, ignores new
+  config) — the runner rebuilds on every start by default for exactly this
+  reason; if you used `OPENREEF_SKIP_BUILD=1`, rebuild once without it.
 - Everything else: see [testing.md](testing.md) for the full verification
   matrix and log locations.

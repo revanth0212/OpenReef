@@ -6,13 +6,17 @@
 # daemon) get the same one-command experience as `docker compose up`.
 #
 # Usage:
-#   ./scripts/run-apple-container.sh [start]   build (if needed) + start
+#   ./scripts/run-apple-container.sh [start]   build + start (always rebuilds)
 #   ./scripts/run-apple-container.sh stop
 #   ./scripts/run-apple-container.sh logs
 #   ./scripts/run-apple-container.sh wipe      remove container + data dir
 #
+# The image is rebuilt on every start: builds are cache-cheap (~30s), and a
+# stale image silently running old code is the worst kind of bug. To skip
+# the rebuild when iterating on non-code config: OPENREEF_SKIP_BUILD=1.
+#
 # Overrides: OPENREEF_NAME / OPENREEF_IMAGE / OPENREEF_DATA / OPENREEF_ENV /
-# OPENREEF_CPUS / OPENREEF_MEMORY / OPENREEF_REBUILD=1
+# OPENREEF_CPUS / OPENREEF_MEMORY / OPENREEF_SKIP_BUILD=1
 set -euo pipefail
 
 NAME="${OPENREEF_NAME:-openreef}"
@@ -36,9 +40,14 @@ start() {
     command -v container >/dev/null || die "Apple 'container' CLI not found. Install it (https://github.com/apple/container) or use Docker instead: docker compose up -d --build"
     check_env
 
-    if [ "${OPENREEF_REBUILD:-0}" = "1" ] || ! container image inspect "$IMAGE" >/dev/null 2>&1; then
-        echo "Building $IMAGE from $REPO_ROOT ..."
+    if [ "${OPENREEF_SKIP_BUILD:-0}" != "1" ] || ! container image inspect "$IMAGE" >/dev/null 2>&1; then
+        local src_ref
+        src_ref="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+        src_ref="$src_ref@$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo '?')"
+        echo "Building $IMAGE from $REPO_ROOT ($src_ref) ..."
         container build -t "$IMAGE" "$REPO_ROOT"
+    else
+        echo "Skipping build (OPENREEF_SKIP_BUILD=1) — using existing $IMAGE."
     fi
 
     # Recreate on every start so env/config changes always apply.
