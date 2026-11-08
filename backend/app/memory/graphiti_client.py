@@ -126,6 +126,19 @@ def _node_to_ns(node: Any) -> Any:
     )
 
 
+def _patch_kuzu_driver_for_graphiti(driver: Any) -> Any:
+    """Bridge graphiti 0.31 multi-database internals onto the deprecated KuzuDriver.
+
+    graphiti's _resolve_request_scope reads driver._database and calls
+    driver.clone(database=group_id) when a group lives "elsewhere". Kuzu is
+    one embedded file hosting every group, so: expose the attribute and make
+    cloning the identity.
+    """
+    driver._database = None  # never equals a group_id -> clone path
+    driver.clone = lambda database=None: driver  # one file hosts all groups
+    return driver
+
+
 class _RawResponse:
     """Mimics the SDK's with_raw_response shape: .data list + .headers dict."""
 
@@ -539,7 +552,9 @@ class GraphitiCompatClient:
         head = chain[0]
         embedder_creds = self._embedder_credentials(head)
 
-        driver = KuzuDriver(db=os.path.join(self._db_dir, "kuzu.db"))
+        driver = _patch_kuzu_driver_for_graphiti(
+            KuzuDriver(db=os.path.join(self._db_dir, "kuzu.db"))
+        )
         llm_client = OpenAIClient(
             LLMConfig(
                 api_key=head.api_key or "missing",

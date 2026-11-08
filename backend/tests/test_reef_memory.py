@@ -564,3 +564,23 @@ def test_api_layer_has_no_unconditional_zep_gates(path):
             pytest.fail(f"{path}:{lineno} unconditional ZEP_API_KEY gate")
         if "if not Config.ZEP_API_KEY" in stripped and "memory_backend_name()" not in stripped:
             pytest.fail(f"{path}:{lineno} ZEP gate missing backend condition")
+
+
+def test_kuzu_driver_patched_for_graphiti_scope_resolution():
+    """graphiti 0.31's _resolve_request_scope must find _database and a
+    working clone() on the (deprecated) KuzuDriver."""
+    from graphiti_core.driver.kuzu_driver import KuzuDriver
+
+    from app.memory.graphiti_client import _patch_kuzu_driver_for_graphiti
+
+    driver = _patch_kuzu_driver_for_graphiti(KuzuDriver(":memory:"))
+    assert driver._database is None
+    assert driver.clone(database="mirofish_abc123") is driver
+
+    # the real scope-resolution check, exercised exactly as graphiti does it
+    group_id = "mirofish_abc123"
+    if group_id == driver._database:
+        scoped = driver
+    else:
+        scoped = driver.clone(database=group_id)
+    assert scoped is driver
