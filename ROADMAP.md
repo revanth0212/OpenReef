@@ -1,6 +1,8 @@
 # OpenReef Roadmap
 
-> **Status**: research deliverable — nothing here is implemented yet.
+> **Status**: research deliverable + living plan. This file is the durable
+> record — it must survive chat deletion, so decisions and status live here,
+> not in conversation history.
 > **Method**: full-repo audit (backend `app/`, frontend `src/`, docs) focused on
 > one question: *where does OpenReef keep implicit state machines, and what
 > would make them better for users, developers, and agents?*
@@ -8,7 +10,16 @@
 > [OPENREEF.md](OPENREEF.md) §2 — default behavior never changes, one container,
 > the UI never loses work, plugins over upstream edits, boring merges, English,
 > reuse, tests+docs ship with the feature.
-> **Last reviewed**: 2026-11-08 (branch `feature/7-reef-memory`).
+> **Last reviewed**: 2026-11-13 (branch `feature/4-report-customization`).
+
+---
+
+## Status log
+
+| Date | Branch | What happened |
+|------|--------|---------------|
+| 2026-11-08 | `feature/7-reef-memory` | Roadmap created from the state-machine audit (Parts 1–6 below). |
+| 2026-11-08 | `feature/4-report-customization` | Shipped: runner auto-closes the OASIS env on natural completion and publishes a terminal status (`6c8e981`, NameError fix `1e747b3`) — upstream never closed it, so natural completion hung forever and the report button never enabled. Partially mitigates **B17** (stale `alive` env); interviews during the run unaffected. Also shipped: runtime-independent settings moved to a Step 1 advanced section (`8f4e45e`, TDZ fix `3952f55`). Decisions D1–D12 remain **pending**. |
 
 ---
 
@@ -44,7 +55,7 @@ its exact location and its trouble.
 | B14 | Stop/finalization barrier | `simulation_runner.py` (`_manual_stop_requests`, `SimulationStopPending`), `STOPPING` as ingestion barrier | set membership + exception-as-state | Correct and subtle, but encoded in ~250 lines of lock choreography. No test-visible invariant like "terminal states are only published after drain" — it's only prose comments. |
 | B15 | Updater drain protocol | `zep_graph_memory_updater.py:314` | `_running` flag + acceptance lock + worker-drain → flush → fail-check → episode-wait | Failed batches retained **in memory only**; the "durable" claim in comments dies with the process. |
 | B16 | Graph readers/writer registry | `utils/zep_lifecycle.py` | per-graph `RLock` + reader set | Process-local, acknowledged in docstring. Fine for single-container; invisible to operators. |
-| B17 | Env alive/dead | `env_status.json` via `simulation_ipc.py:270` | `"alive"` / `"stopped"` string | Third persistence mechanism (alongside state.json, run_state.json). Stale `alive` after a crash gates interviews wrongly until timeout. |
+| B17 | Env alive/dead | `env_status.json` via `simulation_ipc.py:270` | `"alive"` / `"stopped"` string | Third persistence mechanism (alongside state.json, run_state.json). Stale `alive` after a crash gates interviews wrongly until timeout. **Partially mitigated 2026-11-08** (see status log): natural completion now closes the env; crash-stale `alive` still possible — D6/D7 would close the loop. |
 | B18 | Graph-memory enablement | `simulation_runner.py` `_graph_memory_enabled` dict | dict get with `False` default | Tri-state truth (enabled/disabled/unknown) collapses to bool; `stop_simulation` recovery depends on it. |
 
 ### 1C. Frontend — implicit machines (every one is hand-rolled refs + `setInterval`)
